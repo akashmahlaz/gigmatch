@@ -1,0 +1,46 @@
+# 🎸 GIGMATCH - Render Blueprint
+# Deploy configuration for Render.com
+
+services:
+  # Main API Server
+  - type: web
+    name: gigmatch-api
+    runtime: node
+    region: oregon # or your preferred region
+    plan: free # Use 'starter' for production
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/v1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false # Set manually in Render dashboard
+      - key: MONGODB_DB_NAME
+        value: gigmatch
+      - key: JWT_SECRET
+        generateValue: true # Render generates a secure value
+      - key: JWT_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGINS
+        sync: false # Set to your Flutter app domain
+      - key: THROTTLE_TTL
+        value: 60000
+      - key: THROTTLE_LIMIT
+        value: 100
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
