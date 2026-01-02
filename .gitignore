@@ -45,6 +45,7 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+<<<<<<< HEAD
 
 # Runtime data
 pids
@@ -54,3 +55,5 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+=======
+>>>>>>> 1a24fba35f8d7fb7688b53c0f764b217aa6d4b4f
