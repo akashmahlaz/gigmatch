@@ -98,6 +98,9 @@ export class User {
   refreshToken?: string;
 
   @Prop()
+  emailVerificationToken?: string;
+
+  @Prop()
   passwordResetToken?: string;
 
   @Prop()
