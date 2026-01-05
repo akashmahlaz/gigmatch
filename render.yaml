@@ -2,14 +2,13 @@
 # Deploy configuration for Render.com
 
 services:
-  # Main API Server
+  # Main API Server (Docker)
   - type: web
     name: gigmatch-api
-    runtime: node
-    region: oregon # or your preferred region
-    plan: free # Use 'starter' for production
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: npm run start:prod
+    runtime: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /api/v1
     envVars:
       - key: NODE_ENV
