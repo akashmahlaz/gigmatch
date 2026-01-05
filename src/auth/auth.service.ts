@@ -56,7 +56,7 @@ export class AuthService {
   ) {}
 
   /**
-   * Register a new user
+   * Register a new user with transaction to prevent race conditions
    */
   async register(registerDto: RegisterDto): Promise<AuthResponse> {
     const { email, password, fullName, role, phone } = registerDto;
@@ -70,88 +70,115 @@ export class AuthService {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user
-    const user = new this.userModel({
-      email,
-      password: hashedPassword,
-      fullName,
-      role,
-      phone,
-      isActive: true,
-      isEmailVerified: false,
-      emailVerificationToken: randomBytes(32).toString('hex'),
-    });
-
-    await user.save();
-
-    // Create profile based on role
+    // Start a session for transaction
+    const session = await this.userModel.db.startSession();
+    
+    let user: UserDocument;
     let profileId: string | undefined;
 
-    if (role === 'artist') {
-      const artist = new this.artistModel({
-        user: user._id,
-        displayName: fullName,
-        phone,
-        isProfileVisible: false,
-        hasCompletedSetup: false,
-      });
-      await artist.save();
-      profileId = artist._id.toString();
+    try {
+      await session.withTransaction(async () => {
+        // Create user
+        const [createdUser] = await this.userModel.create(
+          [
+            {
+              email,
+              password: hashedPassword,
+              fullName,
+              role,
+              phone,
+              isActive: true,
+              isEmailVerified: false,
+              emailVerificationToken: randomBytes(32).toString('hex'),
+            },
+          ],
+          { session },
+        );
+        user = createdUser;
 
-      // Update user with artist reference
-      user.artistProfile = artist._id;
-      await user.save();
+        // Create profile based on role
+        if (role === 'artist') {
+          const [artist] = await this.artistModel.create(
+            [
+              {
+                user: user._id,
+                displayName: fullName,
+                phone,
+                isProfileVisible: false,
+                hasCompletedSetup: false,
+              },
+            ],
+            { session },
+          );
+          profileId = artist._id.toString();
 
-      // Create free subscription for artist
-      const subscription = new this.subscriptionModel({
-        user: user._id,
-        artist: artist._id,
-        plan: 'free',
-        status: 'active',
-        features: {
-          dailySwipeLimit: 10,
-          canSeeWhoLikedYou: false,
-          boostsPerMonth: 0,
-          priorityInSearch: false,
-          advancedAnalytics: false,
-          customProfileUrl: false,
-          verifiedBadge: false,
-          unlimitedMessages: true,
-        },
-      });
-      await subscription.save();
-    } else if (role === 'venue') {
-      const venue = new this.venueModel({
-        user: user._id,
-        venueName: fullName,
-        venueType: 'bar',
-        location: { city: '', country: '' },
-        phone,
-        isProfileVisible: false,
-        hasCompletedSetup: false,
-      });
-      await venue.save();
-      profileId = venue._id.toString();
+          // Update user with artist reference
+          user.artistProfile = artist._id;
 
-      // Update user with venue reference
-      user.venueProfile = venue._id;
-      await user.save();
+          // Create free subscription for artist
+          await this.subscriptionModel.create(
+            [
+              {
+                user: user._id,
+                artist: artist._id,
+                plan: 'free',
+                status: 'active',
+                features: {
+                  dailySwipeLimit: 10,
+                  canSeeWhoLikedYou: false,
+                  boostsPerMonth: 0,
+                  priorityInSearch: false,
+                  advancedAnalytics: false,
+                  customProfileUrl: false,
+                  verifiedBadge: false,
+                  unlimitedMessages: true,
+                },
+              },
+            ],
+            { session },
+          );
+        } else if (role === 'venue') {
+          const [venue] = await this.venueModel.create(
+            [
+              {
+                user: user._id,
+                venueName: fullName,
+                venueType: 'bar',
+                location: { city: '', country: '' },
+                phone,
+                isProfileVisible: false,
+                hasCompletedSetup: false,
+              },
+            ],
+            { session },
+          );
+          profileId = venue._id.toString();
+
+          // Update user with venue reference
+          user.venueProfile = venue._id;
+        }
+
+        // Save user with profile reference
+        await user.save({ session });
+      });
+    } finally {
+      await session.endSession();
     }
 
-    // Generate tokens
-    const tokens = await this.generateTokens(user);
+    // Generate tokens (outside transaction)
+    const tokens = await this.generateTokens(user!);
 
     // Update user with refresh token
-    user.refreshToken = tokens.refreshToken;
-    await user.save();
+    user!.refreshToken = tokens.refreshToken;
+    await user!.save();
 
     return {
       ...tokens,
       user: {
-        id: user._id.toString(),
-        email: user.email,
-        fullName: user.fullName,
-        role: user.role,
+        id: user!._id.toString(),
+        email: user!.email,
+        fullName: user!.fullName,
+        role: user!.role,
         profileId,
         hasCompletedSetup: false,
       },
