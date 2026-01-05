@@ -89,28 +89,46 @@ export class ArtistsService {
   }
 
   /**
-   * Complete profile setup
+   * Complete profile setup with optional data update
    */
-  async completeSetup(userId: string): Promise<ArtistDocument> {
+  async completeSetup(userId: string, updateData?: UpdateArtistDto): Promise<ArtistDocument> {
     const artist = await this.artistModel.findOne({ user: userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
 
-    // Validate minimum requirements
-    if (!artist.displayName || !artist.genres?.length || !artist.location?.city) {
-      throw new ForbiddenException(
-        'Profile incomplete. Please fill in required fields.',
-      );
+    // Apply updates if provided
+    const updateFields: Record<string, any> = {
+      hasCompletedSetup: true,
+      isProfileVisible: true,
+    };
+
+    if (updateData) {
+      // Merge update data
+      if (updateData.displayName) updateFields.displayName = updateData.displayName;
+      if (updateData.stageName) updateFields.stageName = updateData.stageName;
+      if (updateData.bio) updateFields.bio = updateData.bio;
+      if (updateData.genres) updateFields.genres = updateData.genres;
+      if (updateData.artistType) updateFields.artistType = updateData.artistType;
+      if (updateData.experienceLevel) updateFields.experienceLevel = updateData.experienceLevel;
+      if (updateData.location) updateFields.location = updateData.location;
+      if (updateData.priceRange) updateFields.priceRange = updateData.priceRange;
+      if (updateData.socialLinks) updateFields.socialLinks = updateData.socialLinks;
+      if (updateData.maxTravelDistance !== undefined) updateFields.maxTravelDistance = updateData.maxTravelDistance;
+      if (updateData.equipment) updateFields.equipment = updateData.equipment;
+      if (updateData.bandSize !== undefined) updateFields.bandSize = updateData.bandSize;
     }
 
     const updated = await this.artistModel
       .findByIdAndUpdate(
         artist._id,
-        { hasCompletedSetup: true, isProfileVisible: true },
+        updateFields,
         { new: true },
       )
       .exec();
+
+    // Also update user's isProfileComplete flag
+    await this.userModel.findByIdAndUpdate(userId, { isProfileComplete: true });
 
     return updated!;
   }

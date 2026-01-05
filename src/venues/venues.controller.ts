@@ -63,10 +63,13 @@ export class VenuesController {
   @Roles('venue')
   @Post('me/complete-setup')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Complete venue profile setup' })
+  @ApiOperation({ summary: 'Complete venue profile setup with optional updates' })
   @ApiResponse({ status: 200, description: 'Setup completed' })
-  async completeSetup(@CurrentUser() user: UserPayload) {
-    return this.venuesService.completeSetup(user._id.toString());
+  async completeSetup(
+    @CurrentUser() user: UserPayload,
+    @Body() updateVenueDto?: UpdateVenueDto,
+  ) {
+    return this.venuesService.completeSetup(user._id.toString(), updateVenueDto);
   }
 
   @Public()

@@ -64,10 +64,13 @@ export class ArtistsController {
   @Roles('artist')
   @Post('me/complete-setup')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Complete profile setup' })
+  @ApiOperation({ summary: 'Complete profile setup with optional updates' })
   @ApiResponse({ status: 200, description: 'Setup completed' })
-  async completeSetup(@CurrentUser() user: UserPayload) {
-    return this.artistsService.completeSetup(user._id.toString());
+  async completeSetup(
+    @CurrentUser() user: UserPayload,
+    @Body() updateArtistDto?: UpdateArtistDto,
+  ) {
+    return this.artistsService.completeSetup(user._id.toString(), updateArtistDto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

@@ -236,6 +236,38 @@ export class UpdateArtistDto extends PartialType(CreateArtistDto) {
   @IsOptional()
   @IsBoolean()
   hasCompletedSetup?: boolean;
+
+  @ApiPropertyOptional({ example: 'solo', enum: ['solo', 'band', 'duo', 'dj', 'ensemble', 'orchestra', 'other'] })
+  @IsOptional()
+  @IsString()
+  artistType?: string;
+
+  @ApiPropertyOptional({ example: 'professional', enum: ['beginner', 'intermediate', 'professional', 'expert'] })
+  @IsOptional()
+  @IsString()
+  experienceLevel?: string;
+
+  @ApiPropertyOptional({ example: { min: 100, max: 500 } })
+  @IsOptional()
+  priceRange?: { min?: number; max?: number };
+
+  @ApiPropertyOptional({ example: 50 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  maxTravelDistance?: number;
+
+  @ApiPropertyOptional({ type: [String], example: ['guitar', 'microphone', 'amp'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  equipment?: string[];
+
+  @ApiPropertyOptional({ example: 4 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  bandSize?: number;
 }
 
 export class SearchArtistsDto {

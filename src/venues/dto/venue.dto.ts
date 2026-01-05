@@ -327,6 +327,30 @@ export class UpdateVenueDto extends PartialType(CreateVenueDto) {
   @IsOptional()
   @IsBoolean()
   hasCompletedSetup?: boolean;
+
+  @ApiPropertyOptional({ type: [String], example: ['wifi', 'parking', 'greenroom', 'catering'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  amenities?: string[];
+
+  @ApiPropertyOptional({ example: { min: 500, max: 5000 } })
+  @IsOptional()
+  budgetRange?: { min?: number; max?: number };
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @ApiPropertyOptional({ example: { preferredDays: ['friday', 'saturday'], preferredGenres: ['rock', 'jazz'] } })
+  @IsOptional()
+  gigPreferences?: {
+    preferredDays?: string[];
+    preferredGenres?: string[];
+    eventTypes?: string[];
+    frequencyPerMonth?: number;
+  };
 }
 
 export class SearchVenuesDto {

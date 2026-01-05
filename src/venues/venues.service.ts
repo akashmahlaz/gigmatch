@@ -89,28 +89,48 @@ export class VenuesService {
   }
 
   /**
-   * Complete profile setup
+   * Complete profile setup with optional data update
    */
-  async completeSetup(userId: string): Promise<VenueDocument> {
+  async completeSetup(userId: string, updateData?: UpdateVenueDto): Promise<VenueDocument> {
     const venue = await this.venueModel.findOne({ user: userId }).exec();
     if (!venue) {
       throw new NotFoundException('Venue profile not found');
     }
 
-    // Validate minimum requirements
-    if (!venue.venueName || !venue.venueType || !venue.location?.city) {
-      throw new ForbiddenException(
-        'Profile incomplete. Please fill in required fields.',
-      );
+    // Apply updates if provided
+    const updateFields: Record<string, any> = {
+      hasCompletedSetup: true,
+      isProfileVisible: true,
+      isAcceptingBookings: true,
+    };
+
+    if (updateData) {
+      // Merge update data
+      if (updateData.venueName) updateFields.venueName = updateData.venueName;
+      if (updateData.description) updateFields.description = updateData.description;
+      if (updateData.venueType) updateFields.venueType = updateData.venueType;
+      if (updateData.location) updateFields.location = updateData.location;
+      if (updateData.capacity !== undefined) updateFields.capacity = updateData.capacity;
+      if (updateData.amenities) updateFields.amenities = updateData.amenities;
+      if (updateData.preferredGenres) updateFields.preferredGenres = updateData.preferredGenres;
+      if (updateData.budgetRange) updateFields.budgetRange = updateData.budgetRange;
+      if (updateData.socialLinks) updateFields.socialLinks = updateData.socialLinks;
+      if (updateData.operatingHours) updateFields.operatingHours = updateData.operatingHours;
+      if (updateData.phone) updateFields.phone = updateData.phone;
+      if (updateData.email) updateFields.email = updateData.email;
+      if (updateData.gigPreferences) updateFields.gigPreferences = updateData.gigPreferences;
     }
 
     const updated = await this.venueModel
       .findByIdAndUpdate(
         venue._id,
-        { hasCompletedSetup: true, isProfileVisible: true, isAcceptingBookings: true },
+        updateFields,
         { new: true },
       )
       .exec();
+
+    // Also update user's isProfileComplete flag
+    await this.userModel.findByIdAndUpdate(userId, { isProfileComplete: true });
 
     return updated!;
   }
