@@ -20,12 +20,20 @@ export class EmailService {
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     if (!apiKey) {
-      this.logger.warn('RESEND_API_KEY not configured - emails will be logged only');
+      this.logger.warn(
+        'RESEND_API_KEY not configured - emails will be logged only',
+      );
     }
     this.resend = new Resend(apiKey);
-    this.fromEmail = this.configService.get<string>('EMAIL_FROM', 'GigMatch <noreply@gigmatch.app>');
+    this.fromEmail = this.configService.get<string>(
+      'EMAIL_FROM',
+      'GigMatch <noreply@gigmatch.app>',
+    );
     this.appName = this.configService.get<string>('APP_NAME', 'GigMatch');
-    this.frontendUrl = this.configService.get<string>('FRONTEND_URL', 'https://gigmatch.app');
+    this.frontendUrl = this.configService.get<string>(
+      'FRONTEND_URL',
+      'https://gigmatch.app',
+    );
   }
 
   /**
@@ -57,9 +65,13 @@ export class EmailService {
   /**
    * Send password reset email
    */
-  async sendPasswordResetEmail(email: string, resetToken: string, userName?: string): Promise<boolean> {
+  async sendPasswordResetEmail(
+    email: string,
+    resetToken: string,
+    userName?: string,
+  ): Promise<boolean> {
     const resetLink = `${this.frontendUrl}/reset-password?token=${resetToken}`;
-    
+
     const html = `
 <!DOCTYPE html>
 <html>
@@ -160,9 +172,13 @@ If you didn't request this, you can safely ignore this email.
   /**
    * Send email verification email
    */
-  async sendVerificationEmail(email: string, verificationToken: string, userName?: string): Promise<boolean> {
+  async sendVerificationEmail(
+    email: string,
+    verificationToken: string,
+    userName?: string,
+  ): Promise<boolean> {
     const verifyLink = `${this.frontendUrl}/verify-email?token=${verificationToken}`;
-    
+
     const html = `
 <!DOCTYPE html>
 <html>
@@ -258,7 +274,11 @@ This link will expire in 24 hours.
   /**
    * Send welcome email after verification
    */
-  async sendWelcomeEmail(email: string, userName?: string, role?: string): Promise<boolean> {
+  async sendWelcomeEmail(
+    email: string,
+    userName?: string,
+    role?: string,
+  ): Promise<boolean> {
     const html = `
 <!DOCTYPE html>
 <html>
@@ -291,9 +311,11 @@ This link will expire in 24 hours.
               </p>
               
               <p style="margin: 0 0 30px; color: #a0a0a0; font-size: 16px; line-height: 1.6;">
-                ${role === 'artist' 
-                  ? "🎤 As an artist, you can now browse venues, showcase your talent, and find your next gig!" 
-                  : "🏢 As a venue, you can now discover talented artists and book amazing performances!"}
+                ${
+                  role === 'artist'
+                    ? '🎤 As an artist, you can now browse venues, showcase your talent, and find your next gig!'
+                    : '🏢 As a venue, you can now discover talented artists and book amazing performances!'
+                }
               </p>
               
               <table role="presentation" style="width: 100%; border-collapse: collapse;">

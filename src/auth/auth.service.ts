@@ -79,7 +79,7 @@ export class AuthService {
     try {
       // Check if user exists first
       const existingUser = await this.userModel.findOne({ email }).exec();
-      
+
       if (existingUser) {
         throw new ConflictException('User with this email already exists');
       }
@@ -145,20 +145,28 @@ export class AuthService {
         user.venueProfile = venue._id;
         await user.save();
       }
-
-    } catch (error) {
+    } catch (error: unknown) {
       // Handle MongoDB duplicate key error (race condition protection)
-      if (error.code === 11000) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        (error as { code: number }).code === 11000
+      ) {
         throw new ConflictException('User with this email already exists');
       }
-      
+
       // If it's already a NestJS exception, rethrow it
       if (error instanceof ConflictException) {
         throw error;
       }
-      
-      this.logger.error(`Registration failed: ${error.message}`, error.stack);
-      throw new InternalServerErrorException('Registration failed. Please try again.');
+
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Registration failed: ${errorMessage}`, errorStack);
+      throw new InternalServerErrorException(
+        'Registration failed. Please try again.',
+      );
     }
 
     // Generate tokens
@@ -169,15 +177,20 @@ export class AuthService {
     await user.save();
 
     // Send verification email (non-blocking)
-    this.emailService.sendVerificationEmail(email, emailVerificationToken, fullName)
-      .then(sent => {
+    this.emailService
+      .sendVerificationEmail(email, emailVerificationToken, fullName)
+      .then((sent) => {
         if (sent) {
           this.logger.log(`Verification email sent to ${email}`);
         } else {
           this.logger.warn(`Failed to send verification email to ${email}`);
         }
       })
-      .catch(err => this.logger.error(`Email error: ${err.message}`));
+      .catch((err: unknown) =>
+        this.logger.error(
+          `Email error: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
 
     return {
       ...tokens,
@@ -214,8 +227,13 @@ export class AuthService {
     await user.save();
 
     // Send welcome email (non-blocking)
-    this.emailService.sendWelcomeEmail(user.email, user.fullName, user.role)
-      .catch(err => this.logger.error(`Welcome email error: ${err.message}`));
+    this.emailService
+      .sendWelcomeEmail(user.email, user.fullName, user.role)
+      .catch((err: unknown) =>
+        this.logger.error(
+          `Welcome email error: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
 
     return { message: 'Email verified successfully' };
   }
@@ -228,7 +246,9 @@ export class AuthService {
 
     if (!user) {
       // Don't reveal if email exists
-      return { message: 'If the email exists, a verification link has been sent.' };
+      return {
+        message: 'If the email exists, a verification link has been sent.',
+      };
     }
 
     if (user.isEmailVerified) {
@@ -242,16 +262,28 @@ export class AuthService {
     await user.save();
 
     // Send verification email
-    await this.emailService.sendVerificationEmail(email, emailVerificationToken, user.fullName);
+    await this.emailService.sendVerificationEmail(
+      email,
+      emailVerificationToken,
+      user.fullName,
+    );
 
-    return { message: 'If the email exists, a verification link has been sent.' };
+    return {
+      message: 'If the email exists, a verification link has been sent.',
+    };
   }
 
   /**
    * Validate user credentials
    */
-  async validateUser(email: string, password: string): Promise<UserDocument | null> {
-    const user = await this.userModel.findOne({ email }).select('+password').exec();
+  async validateUser(
+    email: string,
+    password: string,
+  ): Promise<UserDocument | null> {
+    const user = await this.userModel
+      .findOne({ email })
+      .select('+password')
+      .exec();
 
     if (!user) {
       return null;
@@ -312,7 +344,7 @@ export class AuthService {
     const { refreshToken } = refreshTokenDto;
 
     try {
-      const payload = this.jwtService.verify(refreshToken, {
+      const payload = this.jwtService.verify<{ sub: string; email: string; role: string }>(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
 
@@ -346,14 +378,19 @@ export class AuthService {
   /**
    * Forgot password - send reset email
    */
-  async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<{ message: string }> {
+  async forgotPassword(
+    forgotPasswordDto: ForgotPasswordDto,
+  ): Promise<{ message: string }> {
     const { email } = forgotPasswordDto;
 
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
       // Don't reveal if email exists - always return success message
-      return { message: 'If an account with that email exists, a password reset link has been sent.' };
+      return {
+        message:
+          'If an account with that email exists, a password reset link has been sent.',
+      };
     }
 
     // Generate reset token
@@ -366,9 +403,9 @@ export class AuthService {
 
     // Send password reset email
     const emailSent = await this.emailService.sendPasswordResetEmail(
-      email, 
-      resetToken, 
-      user.fullName
+      email,
+      resetToken,
+      user.fullName,
     );
 
     if (!emailSent) {
@@ -377,13 +414,18 @@ export class AuthService {
       this.logger.log(`Password reset email sent to ${email}`);
     }
 
-    return { message: 'If an account with that email exists, a password reset link has been sent.' };
+    return {
+      message:
+        'If an account with that email exists, a password reset link has been sent.',
+    };
   }
 
   /**
    * Reset password with token
    */
-  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
+  async resetPassword(
+    resetPasswordDto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
     const { token, newPassword } = resetPasswordDto;
 
     const user = await this.userModel
@@ -406,7 +448,10 @@ export class AuthService {
 
     this.logger.log(`Password reset successful for ${user.email}`);
 
-    return { message: 'Password has been reset successfully. You can now log in with your new password.' };
+    return {
+      message:
+        'Password has been reset successfully. You can now log in with your new password.',
+    };
   }
 
   /**
@@ -427,7 +472,10 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
 
-    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.password,
+    );
 
     if (!isPasswordValid) {
       throw new BadRequestException('Current password is incorrect');
