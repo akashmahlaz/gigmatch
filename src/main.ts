@@ -9,10 +9,21 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix('api/v1');
 
-  // Enable CORS
+  // Enable CORS - Allow all origins in development, specific origins in production
+  const allowedOrigins = process.env.CORS_ORIGINS?.split(',') || [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3000',
+    'https://roxxie.vercel.app',
+    'https://gigmatch-web.vercel.app',
+  ];
+  
   app.enableCors({
-    origin: process.env.CORS_ORIGINS?.split(',') || '*',
+    origin: process.env.NODE_ENV === 'production' 
+      ? allowedOrigins 
+      : true, // Allow all origins in development
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
     credentials: true,
   });
 

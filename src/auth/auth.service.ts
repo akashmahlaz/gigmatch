@@ -4,6 +4,8 @@ import {
   UnauthorizedException,
   BadRequestException,
   NotFoundException,
+  Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -25,6 +27,7 @@ import {
   ResetPasswordDto,
   ChangePasswordDto,
 } from './dto/auth.dto';
+import { EmailService } from '../email/email.service';
 
 export interface AuthTokens {
   accessToken: string;
@@ -40,11 +43,14 @@ export interface AuthResponse extends AuthTokens {
     role: string;
     profileId?: string;
     hasCompletedSetup: boolean;
+    isEmailVerified: boolean;
   };
 }
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Artist.name) private artistModel: Model<ArtistDocument>,
@@ -53,136 +59,192 @@ export class AuthService {
     private subscriptionModel: Model<SubscriptionDocument>,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   /**
-   * Register a new user with transaction to prevent race conditions
+   * Register a new user with race condition protection
+   * Uses unique index on email for atomic duplicate prevention
    */
   async register(registerDto: RegisterDto): Promise<AuthResponse> {
     const { email, password, fullName, role, phone } = registerDto;
 
-    // Check if user exists
-    const existingUser = await this.userModel.findOne({ email }).exec();
-    if (existingUser) {
-      throw new ConflictException('User with this email already exists');
-    }
-
-    // Hash password
+    // Hash password first
     const hashedPassword = await bcrypt.hash(password, 12);
+    const emailVerificationToken = randomBytes(32).toString('hex');
 
-    // Start a session for transaction
-    const session = await this.userModel.db.startSession();
-    
     let user: UserDocument;
     let profileId: string | undefined;
 
     try {
-      await session.withTransaction(async () => {
-        // Create user
-        const [createdUser] = await this.userModel.create(
-          [
-            {
-              email,
-              password: hashedPassword,
-              fullName,
-              role,
-              phone,
-              isActive: true,
-              isEmailVerified: false,
-              emailVerificationToken: randomBytes(32).toString('hex'),
-            },
-          ],
-          { session },
-        );
-        user = createdUser;
+      // Check if user exists first
+      const existingUser = await this.userModel.findOne({ email }).exec();
+      
+      if (existingUser) {
+        throw new ConflictException('User with this email already exists');
+      }
 
-        // Create profile based on role
-        if (role === 'artist') {
-          const [artist] = await this.artistModel.create(
-            [
-              {
-                user: user._id,
-                displayName: fullName,
-                phone,
-                isProfileVisible: false,
-                hasCompletedSetup: false,
-              },
-            ],
-            { session },
-          );
-          profileId = artist._id.toString();
-
-          // Update user with artist reference
-          user.artistProfile = artist._id;
-
-          // Create free subscription for artist
-          await this.subscriptionModel.create(
-            [
-              {
-                user: user._id,
-                artist: artist._id,
-                plan: 'free',
-                status: 'active',
-                features: {
-                  dailySwipeLimit: 10,
-                  canSeeWhoLikedYou: false,
-                  boostsPerMonth: 0,
-                  priorityInSearch: false,
-                  advancedAnalytics: false,
-                  customProfileUrl: false,
-                  verifiedBadge: false,
-                  unlimitedMessages: true,
-                },
-              },
-            ],
-            { session },
-          );
-        } else if (role === 'venue') {
-          const [venue] = await this.venueModel.create(
-            [
-              {
-                user: user._id,
-                venueName: fullName,
-                venueType: 'bar',
-                location: { city: '', country: '' },
-                phone,
-                isProfileVisible: false,
-                hasCompletedSetup: false,
-              },
-            ],
-            { session },
-          );
-          profileId = venue._id.toString();
-
-          // Update user with venue reference
-          user.venueProfile = venue._id;
-        }
-
-        // Save user with profile reference
-        await user.save({ session });
+      // Create user - the unique index on email will prevent duplicates atomically
+      user = await this.userModel.create({
+        email,
+        password: hashedPassword,
+        fullName,
+        role,
+        phone,
+        isActive: true,
+        isEmailVerified: false,
+        emailVerificationToken,
+        emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       });
-    } finally {
-      await session.endSession();
+
+      // Create profile based on role
+      if (role === 'artist') {
+        const artist = await this.artistModel.create({
+          user: user._id,
+          displayName: fullName,
+          phone,
+          isProfileVisible: false,
+          hasCompletedSetup: false,
+        });
+        profileId = artist._id.toString();
+
+        // Update user with artist reference
+        user.artistProfile = artist._id;
+        await user.save();
+
+        // Create free subscription for artist
+        await this.subscriptionModel.create({
+          user: user._id,
+          artist: artist._id,
+          plan: 'free',
+          status: 'active',
+          features: {
+            dailySwipeLimit: 10,
+            canSeeWhoLikedYou: false,
+            boostsPerMonth: 0,
+            priorityInSearch: false,
+            advancedAnalytics: false,
+            customProfileUrl: false,
+            verifiedBadge: false,
+            unlimitedMessages: true,
+          },
+        });
+      } else if (role === 'venue') {
+        const venue = await this.venueModel.create({
+          user: user._id,
+          venueName: fullName,
+          venueType: 'bar',
+          location: { city: '', country: '' },
+          phone,
+          isProfileVisible: false,
+          hasCompletedSetup: false,
+        });
+        profileId = venue._id.toString();
+
+        // Update user with venue reference
+        user.venueProfile = venue._id;
+        await user.save();
+      }
+
+    } catch (error) {
+      // Handle MongoDB duplicate key error (race condition protection)
+      if (error.code === 11000) {
+        throw new ConflictException('User with this email already exists');
+      }
+      
+      // If it's already a NestJS exception, rethrow it
+      if (error instanceof ConflictException) {
+        throw error;
+      }
+      
+      this.logger.error(`Registration failed: ${error.message}`, error.stack);
+      throw new InternalServerErrorException('Registration failed. Please try again.');
     }
 
-    // Generate tokens (outside transaction)
-    const tokens = await this.generateTokens(user!);
+    // Generate tokens
+    const tokens = await this.generateTokens(user);
 
     // Update user with refresh token
-    user!.refreshToken = tokens.refreshToken;
-    await user!.save();
+    user.refreshToken = tokens.refreshToken;
+    await user.save();
+
+    // Send verification email (non-blocking)
+    this.emailService.sendVerificationEmail(email, emailVerificationToken, fullName)
+      .then(sent => {
+        if (sent) {
+          this.logger.log(`Verification email sent to ${email}`);
+        } else {
+          this.logger.warn(`Failed to send verification email to ${email}`);
+        }
+      })
+      .catch(err => this.logger.error(`Email error: ${err.message}`));
 
     return {
       ...tokens,
       user: {
-        id: user!._id.toString(),
-        email: user!.email,
-        fullName: user!.fullName,
-        role: user!.role,
+        id: user._id.toString(),
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
         profileId,
         hasCompletedSetup: false,
+        isEmailVerified: false,
       },
     };
+  }
+
+  /**
+   * Verify email with token
+   */
+  async verifyEmail(token: string): Promise<{ message: string }> {
+    const user = await this.userModel
+      .findOne({
+        emailVerificationToken: token,
+        emailVerificationExpires: { $gt: new Date() },
+      })
+      .exec();
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    // Send welcome email (non-blocking)
+    this.emailService.sendWelcomeEmail(user.email, user.fullName, user.role)
+      .catch(err => this.logger.error(`Welcome email error: ${err.message}`));
+
+    return { message: 'Email verified successfully' };
+  }
+
+  /**
+   * Resend verification email
+   */
+  async resendVerificationEmail(email: string): Promise<{ message: string }> {
+    const user = await this.userModel.findOne({ email }).exec();
+
+    if (!user) {
+      // Don't reveal if email exists
+      return { message: 'If the email exists, a verification link has been sent.' };
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    // Generate new token
+    const emailVerificationToken = randomBytes(32).toString('hex');
+    user.emailVerificationToken = emailVerificationToken;
+    user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await user.save();
+
+    // Send verification email
+    await this.emailService.sendVerificationEmail(email, emailVerificationToken, user.fullName);
+
+    return { message: 'If the email exists, a verification link has been sent.' };
   }
 
   /**
@@ -238,6 +300,7 @@ export class AuthService {
         role: user.role,
         profileId,
         hasCompletedSetup,
+        isEmailVerified: user.isEmailVerified,
       },
     };
   }
@@ -283,14 +346,14 @@ export class AuthService {
   /**
    * Forgot password - send reset email
    */
-  async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<void> {
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<{ message: string }> {
     const { email } = forgotPasswordDto;
 
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
-      // Don't reveal if email exists
-      return;
+      // Don't reveal if email exists - always return success message
+      return { message: 'If an account with that email exists, a password reset link has been sent.' };
     }
 
     // Generate reset token
@@ -301,15 +364,26 @@ export class AuthService {
     user.passwordResetExpires = resetTokenExpiry;
     await user.save();
 
-    // TODO: Send email with reset link
-    // For now, just log the token (remove in production)
-    console.log(`Password reset token for ${email}: ${resetToken}`);
+    // Send password reset email
+    const emailSent = await this.emailService.sendPasswordResetEmail(
+      email, 
+      resetToken, 
+      user.fullName
+    );
+
+    if (!emailSent) {
+      this.logger.error(`Failed to send password reset email to ${email}`);
+    } else {
+      this.logger.log(`Password reset email sent to ${email}`);
+    }
+
+    return { message: 'If an account with that email exists, a password reset link has been sent.' };
   }
 
   /**
    * Reset password with token
    */
-  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<void> {
+  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
     const { token, newPassword } = resetPasswordDto;
 
     const user = await this.userModel
@@ -327,8 +401,12 @@ export class AuthService {
     user.password = await bcrypt.hash(newPassword, 12);
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
-    user.refreshToken = undefined;
+    user.refreshToken = undefined; // Invalidate all sessions
     await user.save();
+
+    this.logger.log(`Password reset successful for ${user.email}`);
+
+    return { message: 'Password has been reset successfully. You can now log in with your new password.' };
   }
 
   /**
@@ -337,7 +415,7 @@ export class AuthService {
   async changePassword(
     userId: string,
     changePasswordDto: ChangePasswordDto,
-  ): Promise<void> {
+  ): Promise<{ message: string }> {
     const { currentPassword, newPassword } = changePasswordDto;
 
     const user = await this.userModel
@@ -358,6 +436,8 @@ export class AuthService {
     user.password = await bcrypt.hash(newPassword, 12);
     user.refreshToken = undefined; // Invalidate all sessions
     await user.save();
+
+    return { message: 'Password changed successfully' };
   }
 
   /**

@@ -101,6 +101,9 @@ export class User {
   emailVerificationToken?: string;
 
   @Prop()
+  emailVerificationExpires?: Date;
+
+  @Prop()
   passwordResetToken?: string;
 
   @Prop()
