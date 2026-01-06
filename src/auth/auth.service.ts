@@ -163,9 +163,10 @@ export class AuthService {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`Registration failed: ${errorMessage}`, errorStack);
+      this.logger.error(`Registration failed for ${email}: ${errorMessage}`, errorStack);
+      this.logger.error(`Full error object: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
       throw new InternalServerErrorException(
-        'Registration failed. Please try again.',
+        `Registration failed: ${errorMessage}`,
       );
     }
 
