@@ -78,12 +78,14 @@ export class AuthService {
 
     try {
       // Check if user exists first
+      this.logger.log(`Checking if user exists: ${email}`);
       const existingUser = await this.userModel.findOne({ email }).exec();
 
       if (existingUser) {
         throw new ConflictException('User with this email already exists');
       }
 
+      this.logger.log(`Creating new user: ${email}`);
       // Create user - the unique index on email will prevent duplicates atomically
       user = await this.userModel.create({
         email,
@@ -96,9 +98,11 @@ export class AuthService {
         emailVerificationToken,
         emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       });
+      this.logger.log(`User created successfully: ${user._id}`);
 
       // Create profile based on role
       if (role === 'artist') {
+        this.logger.log(`Creating artist profile for user ${user._id}`);
         const artist = await this.artistModel.create({
           user: user._id,
           displayName: fullName,
@@ -107,10 +111,12 @@ export class AuthService {
           hasCompletedSetup: false,
         });
         profileId = artist._id.toString();
+        this.logger.log(`Artist profile created: ${profileId}`);
 
         // Update user with artist reference
         user.artistProfile = artist._id;
         await user.save();
+        this.logger.log(`User updated with artist reference`);
 
         // Create free subscription for artist
         await this.subscriptionModel.create({
@@ -129,21 +135,25 @@ export class AuthService {
             unlimitedMessages: true,
           },
         });
+        this.logger.log(`Subscription created for artist`);
       } else if (role === 'venue') {
+        this.logger.log(`Creating venue profile for user ${user._id}`);
         const venue = await this.venueModel.create({
           user: user._id,
           venueName: fullName,
           venueType: 'bar',
-          location: { city: '', country: '' },
+          location: { city: 'Not Set', country: 'Not Set' }, // Required fields cannot be empty
           phone,
           isProfileVisible: false,
           hasCompletedSetup: false,
         });
         profileId = venue._id.toString();
+        this.logger.log(`Venue profile created: ${profileId}`);
 
         // Update user with venue reference
         user.venueProfile = venue._id;
         await user.save();
+        this.logger.log(`User updated with venue reference`);
       }
     } catch (error: unknown) {
       // Handle MongoDB duplicate key error (race condition protection)

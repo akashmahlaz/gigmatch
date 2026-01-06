@@ -12,10 +12,11 @@ export interface SendEmailOptions {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly resend: Resend;
+  private readonly resend: Resend | null = null;
   private readonly fromEmail: string;
   private readonly appName: string;
   private readonly frontendUrl: string;
+  private readonly isConfigured: boolean;
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
@@ -23,8 +24,11 @@ export class EmailService {
       this.logger.warn(
         'RESEND_API_KEY not configured - emails will be logged only',
       );
+      this.isConfigured = false;
+    } else {
+      this.resend = new Resend(apiKey);
+      this.isConfigured = true;
     }
-    this.resend = new Resend(apiKey);
     this.fromEmail = this.configService.get<string>(
       'EMAIL_FROM',
       'GigMatch <noreply@gigmatch.app>',
@@ -40,6 +44,14 @@ export class EmailService {
    * Send a generic email
    */
   async sendEmail(options: SendEmailOptions): Promise<boolean> {
+    // If Resend is not configured, log the email instead
+    if (!this.isConfigured || !this.resend) {
+      this.logger.log(`[DEV MODE] Email would be sent to: ${options.to}`);
+      this.logger.log(`[DEV MODE] Subject: ${options.subject}`);
+      this.logger.debug(`[DEV MODE] HTML: ${options.html.substring(0, 200)}...`);
+      return true; // Return success in dev mode
+    }
+
     try {
       const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
@@ -57,7 +69,7 @@ export class EmailService {
       this.logger.log(`Email sent successfully: ${data?.id}`);
       return true;
     } catch (error) {
-      this.logger.error(`Email sending failed: ${error.message}`, error);
+      this.logger.error(`Email sending failed: ${(error as Error).message}`, error);
       return false;
     }
   }
