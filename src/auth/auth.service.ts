@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Logger,
   InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -106,6 +107,8 @@ export class AuthService {
         const artist = await this.artistModel.create({
           user: user._id,
           displayName: fullName,
+          // Required fields cannot be empty (see Artist schema)
+          location: { city: 'Not Set', country: 'Not Set', travelRadius: 50 },
           phone,
           isProfileVisible: false,
           hasCompletedSetup: false,
@@ -165,9 +168,21 @@ export class AuthService {
         throw new ConflictException('User with this email already exists');
       }
 
-      // If it's already a NestJS exception, rethrow it
-      if (error instanceof ConflictException) {
+      // If it's already a NestJS HTTP exception, rethrow it
+      if (error instanceof HttpException) {
         throw error;
+      }
+
+      // Handle Mongoose validation errors as 400s (client input/state issue)
+      if (
+        error &&
+        typeof error === 'object' &&
+        'name' in error &&
+        (error as { name?: string }).name === 'ValidationError'
+      ) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Validation error';
+        throw new BadRequestException(`Registration failed: ${errorMessage}`);
       }
 
       const errorMessage =
