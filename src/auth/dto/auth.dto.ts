@@ -37,6 +37,24 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({ example: 'New York' })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({ example: 'United States' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @ApiPropertyOptional({ example: 40.7128 })
+  @IsOptional()
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: -74.0060 })
+  @IsOptional()
+  longitude?: number;
 }
 
 export class LoginDto {

@@ -68,7 +68,7 @@ export class AuthService {
    * Uses unique index on email for atomic duplicate prevention
    */
   async register(registerDto: RegisterDto): Promise<AuthResponse> {
-    const { email, password, fullName, role, phone } = registerDto;
+    const { email, password, fullName, role, phone, city, country, latitude, longitude } = registerDto;
 
     // Hash password first
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -104,11 +104,23 @@ export class AuthService {
       // Create profile based on role
       if (role === 'artist') {
         this.logger.log(`Creating artist profile for user ${user._id}`);
+
+        // Build location object with provided data or defaults
+        const locationData: any = {
+          city: city || 'Not Set',
+          country: country || 'Not Set',
+          travelRadius: 50,
+        };
+
+        // Add coordinates if provided
+        if (latitude != null && longitude != null) {
+          locationData.coordinates = [longitude, latitude]; // GeoJSON format: [lng, lat]
+        }
+
         const artist = await this.artistModel.create({
           user: user._id,
           displayName: fullName,
-          // Required fields cannot be empty (see Artist schema)
-          location: { city: 'Not Set', country: 'Not Set', travelRadius: 50 },
+          location: locationData,
           phone,
           isProfileVisible: false,
           hasCompletedSetup: false,
@@ -141,11 +153,23 @@ export class AuthService {
         this.logger.log(`Subscription created for artist`);
       } else if (role === 'venue') {
         this.logger.log(`Creating venue profile for user ${user._id}`);
+
+        // Build location object with provided data or defaults
+        const locationData: any = {
+          city: city || 'Not Set',
+          country: country || 'Not Set',
+        };
+
+        // Add coordinates if provided
+        if (latitude != null && longitude != null) {
+          locationData.coordinates = [longitude, latitude]; // GeoJSON format: [lng, lat]
+        }
+
         const venue = await this.venueModel.create({
           user: user._id,
           venueName: fullName,
           venueType: 'bar',
-          location: { city: 'Not Set', country: 'Not Set' }, // Required fields cannot be empty
+          location: locationData,
           phone,
           isProfileVisible: false,
           hasCompletedSetup: false,
