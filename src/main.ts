@@ -16,6 +16,7 @@ async function bootstrap() {
     'http://127.0.0.1:3000',
     'https://roxxie.vercel.app',
     'https://gigmatch-web.vercel.app',
+    'https://gigmatch-three.vercel.app',
     ...(process.env.CORS_ORIGINS?.split(',') || []),
   ];
   

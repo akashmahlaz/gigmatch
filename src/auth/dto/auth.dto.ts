@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsNumber,
   MinLength,
   Matches,
 } from 'class-validator';
@@ -50,10 +51,12 @@ export class RegisterDto {
 
   @ApiPropertyOptional({ example: 40.7128 })
   @IsOptional()
+  @IsNumber()
   latitude?: number;
 
   @ApiPropertyOptional({ example: -74.0060 })
   @IsOptional()
+  @IsNumber()
   longitude?: number;
 }
 
