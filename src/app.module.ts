@@ -13,6 +13,7 @@ import { MatchesModule } from './matches/matches.module';
 import { MessagesModule } from './messages/messages.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { EmailModule } from './email/email.module';
+import { AdminModule } from './admin/admin.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -56,6 +57,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     MessagesModule,
     CloudinaryModule,
     EmailModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [
