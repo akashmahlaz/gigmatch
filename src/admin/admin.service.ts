@@ -45,12 +45,18 @@ export class AdminService {
     ]);
 
     // Get recent users for dashboard
-    const recentUsers = await this.userModel
+    const recentUsersRaw = await this.userModel
       .find()
       .sort({ createdAt: -1 })
       .limit(5)
       .select('fullName email role photo createdAt')
       .lean();
+
+    // Transform recent users
+    const recentUsers = recentUsersRaw.map((user: any) => ({
+      ...user,
+      id: user._id.toString(),
+    }));
 
     // Calculate growth (mock for now - you can add proper logic)
     const userGrowth = 12.5;
@@ -100,8 +106,15 @@ export class AdminService {
       this.userModel.countDocuments(filter),
     ]);
 
+    // Transform _id to id for frontend
+    const transformedUsers = users.map((user: any) => ({
+      ...user,
+      id: user._id.toString(),
+      status: user.isBanned ? 'banned' : user.isActive ? 'active' : 'inactive',
+    }));
+
     return {
-      users,
+      users: transformedUsers,
       pagination: {
         page,
         limit,
@@ -112,7 +125,7 @@ export class AdminService {
   }
 
   async getUserById(id: string) {
-    const user = await this.userModel
+    const user: any = await this.userModel
       .findById(id)
       .select('-password')
       .populate('artistProfile')
@@ -123,7 +136,11 @@ export class AdminService {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    return {
+      ...user,
+      id: user._id.toString(),
+      status: user.isBanned ? 'banned' : user.isActive ? 'active' : 'inactive',
+    };
   }
 
   async createUser(createUserDto: CreateUserDto) {
@@ -267,8 +284,14 @@ export class AdminService {
       this.artistModel.countDocuments(filter),
     ]);
 
+    // Transform _id to id
+    const transformedArtists = artists.map((artist: any) => ({
+      ...artist,
+      id: artist._id.toString(),
+    }));
+
     return {
-      artists,
+      artists: transformedArtists,
       pagination: {
         page,
         limit,
@@ -331,8 +354,14 @@ export class AdminService {
       this.venueModel.countDocuments(filter),
     ]);
 
+    // Transform _id to id
+    const transformedVenues = venues.map((venue: any) => ({
+      ...venue,
+      id: venue._id.toString(),
+    }));
+
     return {
-      venues,
+      venues: transformedVenues,
       pagination: {
         page,
         limit,
