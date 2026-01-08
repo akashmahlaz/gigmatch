@@ -18,12 +18,31 @@ export class ArtistsService {
 
   /**
    * Get artist profile by user ID
+   * If artist doesn't exist, create a basic one (handles edge cases)
    */
   async findByUserId(userId: string): Promise<ArtistDocument> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    let artist = await this.artistModel.findOne({ user: userId }).exec();
+
+    // If artist doesn't exist, create a basic profile
     if (!artist) {
-      throw new NotFoundException('Artist profile not found');
+      const user = await this.userModel.findById(userId).exec();
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Create basic artist profile
+      artist = await this.artistModel.create({
+        user: userId,
+        displayName: user.fullName || 'Artist',
+        isProfileVisible: false,
+        hasCompletedSetup: false,
+      });
+
+      // Update user with artist reference
+      user.artistProfile = artist._id;
+      await user.save();
     }
+
     return artist;
   }
 
@@ -90,11 +109,43 @@ export class ArtistsService {
 
   /**
    * Complete profile setup with optional data update
+   * If artist profile doesn't exist (edge case from failed registration), create it
    */
   async completeSetup(userId: string, updateData?: UpdateArtistDto): Promise<ArtistDocument> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    let artist = await this.artistModel.findOne({ user: userId }).exec();
+
+    // If artist doesn't exist, create it (handles edge case where registration partially failed)
     if (!artist) {
-      throw new NotFoundException('Artist profile not found');
+      // Get user info to create artist profile
+      const user = await this.userModel.findById(userId).exec();
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Create new artist profile with provided data
+      const createData: Record<string, any> = {
+        user: userId,
+        displayName: updateData?.displayName || user.fullName || 'Artist',
+        isProfileVisible: false,
+        hasCompletedSetup: false,
+      };
+
+      // Add optional fields from updateData
+      if (updateData?.stageName) createData.stageName = updateData.stageName;
+      if (updateData?.bio) createData.bio = updateData.bio;
+      if (updateData?.genres) createData.genres = updateData.genres;
+      if (updateData?.location) createData.location = updateData.location;
+      if (updateData?.minPrice !== undefined) createData.minPrice = updateData.minPrice;
+      if (updateData?.maxPrice !== undefined) createData.maxPrice = updateData.maxPrice;
+      if (updateData?.currency) createData.currency = updateData.currency;
+      if (updateData?.socialLinks) createData.socialLinks = updateData.socialLinks;
+      if (updateData?.maxTravelDistance !== undefined) createData.maxTravelDistance = updateData.maxTravelDistance;
+
+      artist = await this.artistModel.create(createData);
+
+      // Update user with artist reference
+      user.artistProfile = artist._id;
+      await user.save();
     }
 
     // Apply updates if provided
@@ -112,7 +163,9 @@ export class ArtistsService {
       if (updateData.artistType) updateFields.artistType = updateData.artistType;
       if (updateData.experienceLevel) updateFields.experienceLevel = updateData.experienceLevel;
       if (updateData.location) updateFields.location = updateData.location;
-      if (updateData.priceRange) updateFields.priceRange = updateData.priceRange;
+      if (updateData.minPrice !== undefined) updateFields.minPrice = updateData.minPrice;
+      if (updateData.maxPrice !== undefined) updateFields.maxPrice = updateData.maxPrice;
+      if (updateData.currency) updateFields.currency = updateData.currency;
       if (updateData.socialLinks) updateFields.socialLinks = updateData.socialLinks;
       if (updateData.maxTravelDistance !== undefined) updateFields.maxTravelDistance = updateData.maxTravelDistance;
       if (updateData.equipment) updateFields.equipment = updateData.equipment;
