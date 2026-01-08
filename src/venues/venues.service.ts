@@ -18,12 +18,33 @@ export class VenuesService {
 
   /**
    * Get venue profile by user ID
+   * If venue doesn't exist, create a basic one (handles edge cases)
    */
   async findByUserId(userId: string): Promise<VenueDocument> {
-    const venue = await this.venueModel.findOne({ user: userId }).exec();
+    let venue = await this.venueModel.findOne({ user: userId }).exec();
+
+    // If venue doesn't exist, create a basic profile
     if (!venue) {
-      throw new NotFoundException('Venue profile not found');
+      const user = await this.userModel.findById(userId).exec();
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Create basic venue profile
+      venue = await this.venueModel.create({
+        user: userId,
+        venueName: user.fullName || 'Venue',
+        venueType: 'bar',
+        isProfileVisible: false,
+        hasCompletedSetup: false,
+        isAcceptingBookings: false,
+      });
+
+      // Update user with venue reference
+      user.venueProfile = venue._id;
+      await user.save();
     }
+
     return venue;
   }
 
@@ -90,11 +111,42 @@ export class VenuesService {
 
   /**
    * Complete profile setup with optional data update
+   * If venue profile doesn't exist (edge case from failed registration), create it
    */
   async completeSetup(userId: string, updateData?: UpdateVenueDto): Promise<VenueDocument> {
-    const venue = await this.venueModel.findOne({ user: userId }).exec();
+    let venue = await this.venueModel.findOne({ user: userId }).exec();
+
+    // If venue doesn't exist, create it (handles edge case where registration partially failed)
     if (!venue) {
-      throw new NotFoundException('Venue profile not found');
+      const user = await this.userModel.findById(userId).exec();
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Create new venue profile with provided data
+      const createData: Record<string, any> = {
+        user: userId,
+        venueName: updateData?.venueName || user.fullName || 'Venue',
+        venueType: updateData?.venueType || 'bar',
+        isProfileVisible: false,
+        hasCompletedSetup: false,
+        isAcceptingBookings: false,
+      };
+
+      // Add optional fields from updateData
+      if (updateData?.description) createData.description = updateData.description;
+      if (updateData?.location) createData.location = updateData.location;
+      if (updateData?.capacity !== undefined) createData.capacity = updateData.capacity;
+      if (updateData?.amenities) createData.amenities = updateData.amenities;
+      if (updateData?.preferredGenres) createData.preferredGenres = updateData.preferredGenres;
+      if (updateData?.phone) createData.phone = updateData.phone;
+      if (updateData?.email) createData.email = updateData.email;
+
+      venue = await this.venueModel.create(createData);
+
+      // Update user with venue reference
+      user.venueProfile = venue._id;
+      await user.save();
     }
 
     // Apply updates if provided
