@@ -8,6 +8,10 @@ export type GigDocument = HydratedDocument<Gig>;
  *
  * Represents a gig/event posted by a venue.
  * Artists can apply to gigs or venues can directly invite artists.
+ *
+ * 📍 Location:
+ * - Stores an exact Point (GeoJSON) for radius-based discovery ($near)
+ * - Also stores city/country as human-readable labels
  */
 @Schema({
   timestamps: true,
@@ -67,12 +71,40 @@ export class Gig {
   })
   paymentType: 'fixed' | 'negotiable' | 'per_hour';
 
-  // Status
-  @Prop({
-    enum: ['draft', 'open', 'in_progress', 'filled', 'completed', 'cancelled'],
-    default: 'draft',
-  })
-  status: 'draft' | 'open' | 'in_progress' | 'filled' | 'completed' | 'cancelled';
+  // Location (exact geospatial + readable fields)
+  @Prop(
+    raw({
+      venueAddress: { type: String },
+      city: { type: String, required: true },
+      state: { type: String },
+      postalCode: { type: String },
+      country: { type: String, required: true },
+
+      // GeoJSON Point for $near queries (lng, lat)
+      geo: {
+        type: {
+          type: String,
+          enum: ['Point'],
+          default: 'Point',
+        },
+        coordinates: {
+          type: [Number], // [longitude, latitude]
+          required: true,
+        },
+      },
+    }),
+  )
+  location: {
+    venueAddress?: string;
+    city: string;
+    state?: string;
+    postalCode?: string;
+    country: string;
+    geo: {
+      type: 'Point';
+      coordinates: number[]; // [lng, lat]
+    };
+  };
 
   // Applications
   @Prop(
@@ -157,3 +189,7 @@ GigSchema.index({ budget: 1 });
 GigSchema.index({ 'applications.artist': 1 });
 GigSchema.index({ bookedArtists: 1 });
 GigSchema.index({ createdAt: -1 });
+
+// Geospatial index for radius-based discovery ($near)
+GigSchema.index({ 'location.geo': '2dsphere' });
+GigSchema.index({ 'location.city': 1, 'location.country': 1 });

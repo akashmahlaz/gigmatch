@@ -2,12 +2,18 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Artist, ArtistDocument } from '../schemas/artist.schema';
 import { User, UserDocument } from '../schemas/user.schema';
-import { CreateArtistDto, UpdateArtistDto, SearchArtistsDto } from './dto/artist.dto';
+import {
+  CreateArtistDto,
+  UpdateArtistDto,
+  SearchArtistsDto,
+} from './dto/artist.dto';
 
 @Injectable()
 export class ArtistsService {
@@ -109,81 +115,131 @@ export class ArtistsService {
 
   /**
    * Complete profile setup with optional data update
-   * If artist profile doesn't exist (edge case from failed registration), create it
+   *
+   * Enterprise rules:
+   * - Location is REQUIRED to complete setup (city, country, coordinates [lng, lat]).
+   * - Any validation problems must return clear 400 errors (not 500).
+   * - We avoid writing fields that are not part of the Artist schema.
    */
-  async completeSetup(userId: string, updateData?: UpdateArtistDto): Promise<ArtistDocument> {
-    let artist = await this.artistModel.findOne({ user: userId }).exec();
+  async completeSetup(
+    userId: string,
+    updateData?: UpdateArtistDto,
+  ): Promise<ArtistDocument> {
+    try {
+      let artist = await this.artistModel.findOne({ user: userId }).exec();
 
-    // If artist doesn't exist, create it (handles edge case where registration partially failed)
-    if (!artist) {
-      // Get user info to create artist profile
-      const user = await this.userModel.findById(userId).exec();
-      if (!user) {
-        throw new NotFoundException('User not found');
+      // If artist doesn't exist, create it (handles edge case where registration partially failed)
+      if (!artist) {
+        const user = await this.userModel.findById(userId).exec();
+        if (!user) {
+          throw new NotFoundException('User not found');
+        }
+
+        const createData: Record<string, any> = {
+          user: userId,
+          displayName: updateData?.displayName || user.fullName || 'Artist',
+          isProfileVisible: false,
+          hasCompletedSetup: false,
+        };
+
+        // Add optional fields from updateData (schema-safe)
+        if (updateData?.stageName) createData.stageName = updateData.stageName;
+        if (updateData?.bio) createData.bio = updateData.bio;
+        if (updateData?.genres) createData.genres = updateData.genres;
+        if (updateData?.location) createData.location = updateData.location;
+        if (updateData?.minPrice !== undefined)
+          createData.minPrice = updateData.minPrice;
+        if (updateData?.maxPrice !== undefined)
+          createData.maxPrice = updateData.maxPrice;
+        if (updateData?.currency) createData.currency = updateData.currency;
+        if (updateData?.socialLinks)
+          createData.socialLinks = updateData.socialLinks;
+
+        artist = await this.artistModel.create(createData);
+
+        // Update user with artist reference
+        user.artistProfile = artist._id;
+        await user.save();
       }
 
-      // Create new artist profile with provided data
-      const createData: Record<string, any> = {
-        user: userId,
-        displayName: updateData?.displayName || user.fullName || 'Artist',
-        isProfileVisible: false,
-        hasCompletedSetup: false,
+      // Apply updates if provided
+      const updateFields: Record<string, any> = {
+        hasCompletedSetup: true,
+        isProfileVisible: true,
       };
 
-      // Add optional fields from updateData
-      if (updateData?.stageName) createData.stageName = updateData.stageName;
-      if (updateData?.bio) createData.bio = updateData.bio;
-      if (updateData?.genres) createData.genres = updateData.genres;
-      if (updateData?.location) createData.location = updateData.location;
-      if (updateData?.minPrice !== undefined) createData.minPrice = updateData.minPrice;
-      if (updateData?.maxPrice !== undefined) createData.maxPrice = updateData.maxPrice;
-      if (updateData?.currency) createData.currency = updateData.currency;
-      if (updateData?.socialLinks) createData.socialLinks = updateData.socialLinks;
-      if (updateData?.maxTravelDistance !== undefined) createData.maxTravelDistance = updateData.maxTravelDistance;
+      if (updateData) {
+        // Merge update data (schema-safe only)
+        if (updateData.displayName)
+          updateFields.displayName = updateData.displayName;
+        if (updateData.stageName) updateFields.stageName = updateData.stageName;
+        if (updateData.bio) updateFields.bio = updateData.bio;
+        if (updateData.genres) updateFields.genres = updateData.genres;
+        if (updateData.location) updateFields.location = updateData.location;
+        if (updateData.minPrice !== undefined)
+          updateFields.minPrice = updateData.minPrice;
+        if (updateData.maxPrice !== undefined)
+          updateFields.maxPrice = updateData.maxPrice;
+        if (updateData.currency) updateFields.currency = updateData.currency;
+        if (updateData.socialLinks)
+          updateFields.socialLinks = updateData.socialLinks;
+      }
 
-      artist = await this.artistModel.create(createData);
+      // Enforce required location for completion:
+      // - Prefer the incoming payload location (updateFields.location)
+      // - Fall back to existing artist.location if not provided in this request
+      const effectiveLocation: any =
+        updateFields['location'] ?? artist.location;
 
-      // Update user with artist reference
-      user.artistProfile = artist._id;
-      await user.save();
+      const city = effectiveLocation?.city;
+      const country = effectiveLocation?.country;
+      const coords = effectiveLocation?.coordinates;
+
+      const hasValidCity = typeof city === 'string' && city.trim().length > 0;
+      const hasValidCountry =
+        typeof country === 'string' && country.trim().length > 0;
+
+      const hasValidCoords =
+        Array.isArray(coords) &&
+        coords.length === 2 &&
+        typeof coords[0] === 'number' &&
+        typeof coords[1] === 'number' &&
+        Math.abs(coords[0]) > 0.000001 &&
+        Math.abs(coords[1]) > 0.000001;
+
+      if (!hasValidCity || !hasValidCountry || !hasValidCoords) {
+        throw new BadRequestException(
+          'Location is required to complete setup. Provide location.city, location.country and location.coordinates [longitude, latitude].',
+        );
+      }
+
+      const updated = await this.artistModel
+        .findByIdAndUpdate(artist._id, updateFields, { new: true })
+        .exec();
+
+      if (!updated) {
+        throw new InternalServerErrorException(
+          'Failed to complete artist setup',
+        );
+      }
+
+      // Also update user's isProfileComplete flag
+      await this.userModel.findByIdAndUpdate(userId, {
+        isProfileComplete: true,
+      });
+
+      return updated;
+    } catch (err: any) {
+      // Preserve explicit HTTP errors; wrap unexpected ones so clients don't see 500 without context.
+      if (
+        err instanceof BadRequestException ||
+        err instanceof ForbiddenException ||
+        err instanceof NotFoundException
+      ) {
+        throw err;
+      }
+      throw new InternalServerErrorException('Internal server error');
     }
-
-    // Apply updates if provided
-    const updateFields: Record<string, any> = {
-      hasCompletedSetup: true,
-      isProfileVisible: true,
-    };
-
-    if (updateData) {
-      // Merge update data
-      if (updateData.displayName) updateFields.displayName = updateData.displayName;
-      if (updateData.stageName) updateFields.stageName = updateData.stageName;
-      if (updateData.bio) updateFields.bio = updateData.bio;
-      if (updateData.genres) updateFields.genres = updateData.genres;
-      if (updateData.artistType) updateFields.artistType = updateData.artistType;
-      if (updateData.experienceLevel) updateFields.experienceLevel = updateData.experienceLevel;
-      if (updateData.location) updateFields.location = updateData.location;
-      if (updateData.minPrice !== undefined) updateFields.minPrice = updateData.minPrice;
-      if (updateData.maxPrice !== undefined) updateFields.maxPrice = updateData.maxPrice;
-      if (updateData.currency) updateFields.currency = updateData.currency;
-      if (updateData.socialLinks) updateFields.socialLinks = updateData.socialLinks;
-      if (updateData.maxTravelDistance !== undefined) updateFields.maxTravelDistance = updateData.maxTravelDistance;
-      if (updateData.equipment) updateFields.equipment = updateData.equipment;
-      if (updateData.bandSize !== undefined) updateFields.bandSize = updateData.bandSize;
-    }
-
-    const updated = await this.artistModel
-      .findByIdAndUpdate(
-        artist._id,
-        updateFields,
-        { new: true },
-      )
-      .exec();
-
-    // Also update user's isProfileComplete flag
-    await this.userModel.findByIdAndUpdate(userId, { isProfileComplete: true });
-
-    return updated!;
   }
 
   /**
@@ -191,7 +247,12 @@ export class ArtistsService {
    */
   async search(
     searchDto: SearchArtistsDto,
-  ): Promise<{ artists: ArtistDocument[]; total: number; page: number; pages: number }> {
+  ): Promise<{
+    artists: ArtistDocument[];
+    total: number;
+    page: number;
+    pages: number;
+  }> {
     const {
       genres,
       city,
@@ -267,12 +328,7 @@ export class ArtistsService {
     };
 
     const [artists, total] = await Promise.all([
-      this.artistModel
-        .find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .exec(),
+      this.artistModel.find(filter).sort(sort).skip(skip).limit(limit).exec(),
       this.artistModel.countDocuments(filter).exec(),
     ]);
 
@@ -340,7 +396,8 @@ export class ArtistsService {
     if (artist.audioSamples && artist.audioSamples.length > 0) score++;
     if (artist.location?.city) score++;
     if (artist.minPrice || artist.maxPrice) score++;
-    if (artist.socialLinks && Object.values(artist.socialLinks).some((v) => v)) score++;
+    if (artist.socialLinks && Object.values(artist.socialLinks).some((v) => v))
+      score++;
     if (artist.availability && artist.availability.length > 0) score++;
 
     return Math.round((score / totalFields) * 100);
@@ -351,7 +408,11 @@ export class ArtistsService {
    */
   async updateStats(
     artistId: string,
-    stats: { completedGigs?: number; totalReviews?: number; averageRating?: number },
+    stats: {
+      completedGigs?: number;
+      totalReviews?: number;
+      averageRating?: number;
+    },
   ): Promise<void> {
     await this.artistModel.findByIdAndUpdate(artistId, { $set: stats }).exec();
   }

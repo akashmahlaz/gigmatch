@@ -1,0 +1,194 @@
+/// 👤 GIGMATCH USER SCHEMA
+///
+/// Core user model for both Artists and Venues
+/// Contains authentication fields and role-based profile references
+
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+export type UserDocument = User & Document;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// USER ROLES
+// ═══════════════════════════════════════════════════════════════════════════
+
+export enum UserRole {
+  ARTIST = 'artist',
+  VENUE = 'venue',
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// USER STATUS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export enum UserStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+  SUSPENDED = 'suspended',
+  PENDING_VERIFICATION = 'pending_verification',
+  PROFILE_INCOMPLETE = 'profile_incomplete',
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// USER SCHEMA
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Schema({ timestamps: true, collection: 'users' })
+export class User {
+  _id: Types.ObjectId;
+
+  /// Email address (unique, lowercase)
+  @Prop({ required: true, unique: true, lowercase: true, trim: true })
+  email: string;
+
+  /// Password hash (bcrypt)
+  @Prop({ required: true, select: false })
+  password: string;
+
+  /// Display name
+  @Prop({ required: true, trim: true, minlength: 2, maxlength: 100 })
+  name: string;
+
+  /// User role - determines app flow
+  @Prop({
+    required: true,
+    enum: UserRole,
+    type: String,
+    default: UserRole.ARTIST,
+  })
+  role: UserRole;
+
+  /// Account status
+  @Prop({
+    enum: UserStatus,
+    type: String,
+    default: UserStatus.PROFILE_INCOMPLETE,
+  })
+  status: UserStatus;
+
+  /// Profile photo URL
+  @Prop({ default: null })
+  profilePhotoUrl: string;
+
+  /// Phone number for quick calls
+  @Prop({ default: null })
+  phone: string;
+
+  /// Show phone on profile toggle
+  @Prop({ default: false })
+  showPhoneOnProfile: boolean;
+
+  /// Email verification status
+  @Prop({ default: false })
+  isEmailVerified: boolean;
+
+  /// Profile completion percentage (0-100)
+  @Prop({ default: 0, min: 0, max: 100 })
+  profileCompleteness: number;
+
+  /// Last login timestamp
+  @Prop({ default: null })
+  lastLoginAt: Date;
+
+  /// Password reset token
+  @Prop({ select: false, default: null })
+  passwordResetToken: string;
+
+  /// Password reset token expiry
+  @Prop({ select: false, default: null })
+  passwordResetExpires: Date;
+
+  /// Email verification token
+  @Prop({ select: false, default: null })
+  emailVerificationToken: string;
+
+  /// Stripe customer ID (for subscriptions)
+  @Prop({ select: false, default: null })
+  stripeCustomerId: string;
+
+  /// Push notification token
+  @Prop({ default: null })
+  pushNotificationToken: string;
+
+  /// Device information for push notifications
+  @Prop({ default: null })
+  deviceInfo: {
+    platform: string;
+    deviceId: string;
+    appVersion: string;
+  };
+
+  /// Social login providers
+  @Prop({
+    type: {
+      google: { type: String, default: null },
+      apple: { type: String, default: null },
+    },
+    default: {},
+  })
+  socialProviders: {
+    google?: string;
+    apple?: string;
+  };
+
+  /// Role-specific profile references (populated after profile completion)
+  @Prop({ type: Types.ObjectId, ref: 'Artist', default: null })
+  artistId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Venue', default: null })
+  venueId: Types.ObjectId;
+
+  /// Timestamps
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCHEMA FACTORY & INDEXES
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const UserSchema = SchemaFactory.createForClass(User);
+
+// Compound unique index for email (redundant but explicit)
+UserSchema.index({ email: 1 }, { unique: true });
+
+// Index for role-based queries
+UserSchema.index({ role: 1, status: 1 });
+
+// Index for artist/venue profile lookups
+UserSchema.index({ artistId: 1 });
+UserSchema.index({ venueId: 1 });
+
+// Text index for search
+UserSchema.index({ name: 'text', email: 'text' });
+
+// Virtual for checking if profile is complete
+UserSchema.virtual('isProfileComplete').get(function () {
+  return (
+    this.status !== UserStatus.PROFILE_INCOMPLETE &&
+    this.profileCompleteness >= 100
+  );
+});
+
+// Instance method to check if user is artist
+UserSchema.methods.isArtist = function (): boolean {
+  return this.role === UserRole.ARTIST;
+};
+
+// Instance method to check if user is venue
+UserSchema.methods.isVenue = function (): boolean {
+  return this.role === UserRole.VENUE;
+};
+
+// Instance method to check if user can leave reviews (verified booker)
+UserSchema.methods.canLeaveReview = function (): boolean {
+  return this.role === UserRole.VENUE && this.isEmailVerified;
+};
+
+// Pre-save hook to ensure email is lowercase
+UserSchema.pre('save', function (next) {
+  if (this.isModified('email')) {
+    this.email = this.email.toLowerCase();
+  }
+  next();
+});
