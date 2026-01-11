@@ -6,8 +6,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type ArtistDocument = Artist & Document;
-
 // ═══════════════════════════════════════════════════════════════════════════
 // ENUMS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -94,7 +92,8 @@ export class ArtistLocation {
   travelRadiusMiles: number = 50;
 }
 
-export const ArtistLocationSchema = SchemaFactory.createForClass(ArtistLocation);
+export const ArtistLocationSchema =
+  SchemaFactory.createForClass(ArtistLocation);
 
 /// Individual availability slot
 @Schema({ _id: true })
@@ -124,7 +123,8 @@ export class AvailabilitySlot {
   notes?: string;
 }
 
-export const AvailabilitySlotSchema = SchemaFactory.createForClass(AvailabilitySlot);
+export const AvailabilitySlotSchema =
+  SchemaFactory.createForClass(AvailabilitySlot);
 
 /// Audio sample embedded document
 @Schema({ _id: true })
@@ -262,7 +262,8 @@ export class ReputationScore {
   lastCalculated?: Date;
 }
 
-export const ReputationScoreSchema = SchemaFactory.createForClass(ReputationScore);
+export const ReputationScoreSchema =
+  SchemaFactory.createForClass(ReputationScore);
 
 /// Past booking reference for reputation
 @Schema({ _id: true })
@@ -543,6 +544,7 @@ export class Artist {
   updatedAt: Date;
 }
 
+export type ArtistDocument = Artist & Document;
 export const ArtistSchema = SchemaFactory.createForClass(Artist);
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -584,7 +586,7 @@ ArtistSchema.virtual('fullName').get(function (): string {
 ArtistSchema.virtual('isAvailable').get(function (): boolean {
   return this.availability.some(
     (slot) =>
-      slot.date.isAfter(new Date()) && slot.status === AvailabilityStatus.AVAILABLE,
+      slot.date > new Date() && slot.status === AvailabilityStatus.AVAILABLE,
   );
 });
 
@@ -640,7 +642,10 @@ ArtistSchema.methods.updateReputation = function (): void {
   const reliabilityBoost = this.totalGigsPerformed > 10 ? 5 : 0;
   const verifiedBoost = this.isVerified ? 5 : 0;
 
-  this.reputation.overall = Math.min(100, baseScore + reliabilityBoost + verifiedBoost);
+  this.reputation.overall = Math.min(
+    100,
+    baseScore + reliabilityBoost + verifiedBoost,
+  );
   this.reputation.performanceQuality = this.reviewStats.averageRating * 20;
   this.reputation.lastCalculated = new Date();
 };
@@ -660,7 +665,8 @@ ArtistSchema.methods.getActiveLocation = function (): ArtistLocation | null {
   if (this.isOnTour() && this.activeTourLocation) {
     return {
       type: 'Point',
-      coordinates: this.activeTourLocation.coordinates || this.location?.coordinates || [0, 0],
+      coordinates: this.activeTourLocation.coordinates ||
+        this.location?.coordinates || [0, 0],
       city: this.activeTourLocation.city,
       state: this.activeTourLocation.state,
       country: this.activeTourLocation.country,
@@ -671,15 +677,23 @@ ArtistSchema.methods.getActiveLocation = function (): ArtistLocation | null {
 };
 
 /// Pre-save hook to calculate profile completeness
-ArtistSchema.pre('save', function (next) {
-  if (this.isModified('displayName') || this.isModified('bio') ||
-      this.isModified('genres') || this.isModified('profilePhotoUrl') ||
-      this.isModified('photos') || this.isModified('audioSamples') ||
-      this.isModified('videoSamples') || this.isModified('location') ||
-      this.isModified('phone') || this.isModified('socialLinks') ||
-      this.isModified('minPrice') || this.isModified('maxPrice') ||
-      this.isModified('availability')) {
-    this.profileCompleteness = this.calculateProfileCompleteness();
+ArtistSchema.pre('save', function (next: any) {
+  if (
+    this.isModified('displayName') ||
+    this.isModified('bio') ||
+    this.isModified('genres') ||
+    this.isModified('profilePhotoUrl') ||
+    this.isModified('photos') ||
+    this.isModified('audioSamples') ||
+    this.isModified('videoSamples') ||
+    this.isModified('location') ||
+    this.isModified('phone') ||
+    this.isModified('socialLinks') ||
+    this.isModified('minPrice') ||
+    this.isModified('maxPrice') ||
+    this.isModified('availability')
+  ) {
+    this.profileCompleteness = (this as any).calculateProfileCompleteness();
     this.hasCompletedSetup = this.profileCompleteness >= 80;
   }
   next();
@@ -735,7 +749,8 @@ ArtistSchema.methods.toSearchable = function () {
     city: this.location?.city,
     country: this.location?.country,
     coordinates: this.location?.coordinates,
-    travelRadiusMiles: this.location?.travelRadiusMiles || this.travelRadiusMiles,
+    travelRadiusMiles:
+      this.location?.travelRadiusMiles || this.travelRadiusMiles,
     minPrice: this.minPrice,
     maxPrice: this.maxPrice,
     currency: this.currency,
@@ -746,3 +761,5 @@ ArtistSchema.methods.toSearchable = function () {
     subscriptionTier: this.subscriptionTier,
   };
 };
+
+

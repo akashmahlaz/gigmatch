@@ -45,7 +45,7 @@ export class UserRepository {
   async create(userData: Partial<User>): Promise<UserDocument> {
     const user = new this.userModel({
       ...userData,
-      status: UserStatus.active,
+      status: UserStatus.ACTIVE,
       isEmailVerified: false,
       isProfileComplete: false,
     });
@@ -64,7 +64,7 @@ export class UserRepository {
   ): Promise<UserDocument> {
     const user = new this.userModel({
       ...userData,
-      status: UserStatus.active,
+      status: UserStatus.ACTIVE,
       isEmailVerified: false,
       isProfileComplete: false,
     });
@@ -185,7 +185,7 @@ export class UserRepository {
     skip = 0,
   ): Promise<UserDocument[]> {
     return this.userModel
-      .find({ role, status: UserStatus.active })
+      .find({ role, status: UserStatus.ACTIVE })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -204,9 +204,9 @@ export class UserRepository {
   ): Promise<UserDocument[]> {
     return this.userModel
       .find({
-        role: UserRole.artist,
+        role: UserRole.ARTIST,
         isProfileComplete: false,
-        status: UserStatus.active,
+        status: UserStatus.ACTIVE,
       })
       .sort({ createdAt: 1 })
       .skip(skip)
@@ -226,9 +226,9 @@ export class UserRepository {
   ): Promise<UserDocument[]> {
     return this.userModel
       .find({
-        role: UserRole.venue,
+        role: UserRole.VENUE,
         isProfileComplete: false,
-        status: UserStatus.active,
+        status: UserStatus.ACTIVE,
       })
       .sort({ createdAt: 1 })
       .skip(skip)
@@ -262,7 +262,7 @@ export class UserRepository {
    */
   async countArtists(): Promise<number> {
     return this.userModel
-      .countDocuments({ role: UserRole.artist })
+      .countDocuments({ role: UserRole.ARTIST })
       .exec();
   }
 
@@ -272,7 +272,7 @@ export class UserRepository {
    */
   async countVenues(): Promise<number> {
     return this.userModel
-      .countDocuments({ role: UserRole.venue })
+      .countDocuments({ role: UserRole.VENUE })
       .exec();
   }
 
@@ -491,7 +491,7 @@ export class UserRepository {
    * @returns Updated user document
    */
   async softDelete(id: string): Promise<UserDocument | null> {
-    return this.updateStatus(id, UserStatus.deleted);
+    return this.updateStatus(id, UserStatus.DELETED);
   }
 
   /**

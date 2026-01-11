@@ -32,8 +32,9 @@ import { ConfigService } from '@nestjs/config';
 import {
   Swipe,
   SwipeDocument,
-  SwipeType,
+  SwipeDirection,
   SwipeResult,
+  SwipeSource,
 } from './schemas/swipe.schema';
 import { Match, MatchDocument } from '../matches/schemas/match.schema';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
@@ -47,7 +48,6 @@ import {
   UndoSwipeDto,
   DiscoverQueryDto,
 } from './dto/swipe.dto';
-import { RecommendationScoreDto } from './dto/recommendation.dto';
 
 // Enums
 import { UserRole } from '../auth/schemas/user.schema';
@@ -119,15 +119,15 @@ export class SwipesService {
 
     // Check for mutual swipe (match)
     const oppositeSwipe = await this.swipeModel.findOne({
-      userId: targetUserId,
+      swiperId: targetUserId,
       targetId: new Types.ObjectId(userId),
-      swipeType: SwipeType.RIGHT,
+      direction: SwipeDirection.RIGHT,
     });
 
     let result: SwipeResult;
     let match: Match | null = null;
 
-    if (oppositeSwipe && dto.swipeType === SwipeType.RIGHT) {
+    if (oppositeSwipe && dto.direction === SwipeDirection.RIGHT) {
       // Mutual match!
       result = SwipeResult.MATCH;
 
@@ -163,19 +163,19 @@ export class SwipesService {
         this.logger.error(`Match creation failed: ${error}`);
         throw new BadRequestException('Failed to create match');
       }
-    } else if (dto.swipeType === SwipeType.RIGHT) {
+    } else if (dto.direction === SwipeDirection.RIGHT) {
       result = SwipeResult.LIKED;
     } else {
-      result = SwipeResult.SKIPPED;
+      result = SwipeResult.NO_MATCH;
     }
 
     // Create swipe record
     const swipe = await this.swipeModel.create([
       {
-        userId: new Types.ObjectId(userId),
+        swiperId: new Types.ObjectId(userId),
         targetId: new Types.ObjectId(dto.targetId),
-        targetType: role === UserRole.ARTIST ? 'venue' : 'artist',
-        swipeType: dto.swipeType,
+        targetRole: role === UserRole.ARTIST ? UserRole.VENUE : UserRole.ARTIST,
+        direction: dto.direction,
         result,
         metadata: {
           source: dto.source ?? 'discover',
@@ -189,7 +189,7 @@ export class SwipesService {
     await this.incrementSwipeCount(userId, role);
 
     this.logger.log(
-      `Swipe completed: user=${userId}, target=${dto.targetId}, type=${dto.swipeType}, result=${result}, time=${Date.now() - startTime}ms`,
+      `Swipe completed: user=${userId}, target=${dto.targetId}, type=${dto.direction}, result=${result}, time=${Date.now() - startTime}ms`,
     );
 
     return {
@@ -222,13 +222,13 @@ export class SwipesService {
     }
 
     // Verify ownership
-    if (swipe.userId.toString() !== userId) {
+    if (swipe.swiperId.toString() !== userId) {
       throw new ForbiddenException('You can only undo your own swipes');
     }
 
     // Check if swipe can be undone (within time window)
     const undoWindowMs = 5 * 60 * 1000; // 5 minutes
-    const timeSinceSwipe = Date.now() - swipe.createdAt.getTime();
+    const timeSinceSwipe = Date.now() - (swipe as any).createdAt.getTime();
 
     if (timeSinceSwipe > undoWindowMs) {
       throw new BadRequestException(
@@ -245,12 +245,12 @@ export class SwipesService {
     await this.swipeModel.deleteOne({ _id: swipe._id });
 
     // If there was an opposite swipe that was waiting, update it
-    if (swipe.swipeType === SwipeType.RIGHT) {
+    if (swipe.direction === SwipeDirection.RIGHT) {
       await this.swipeModel.updateOne(
         {
-          userId: swipe.targetId,
-          targetId: swipe.userId,
-          swipeType: SwipeType.RIGHT,
+          swiperId: swipe.targetId,
+          targetId: swipe.swiperId,
+          direction: SwipeDirection.RIGHT,
           result: SwipeResult.LIKED,
         },
         { $set: { result: SwipeResult.EXPIRED } },
@@ -676,7 +676,7 @@ export class SwipesService {
         .find({
           userId: new Types.ObjectId(userId),
           targetType,
-          swipeType: SwipeType.RIGHT,
+          swipeType: SwipeDirection.RIGHT,
           result: { $in: [SwipeResult.LIKED, SwipeResult.MATCH] },
         })
         .sort({ createdAt: -1 })
@@ -686,7 +686,7 @@ export class SwipesService {
       this.swipeModel.countDocuments({
         userId: new Types.ObjectId(userId),
         targetType,
-        swipeType: SwipeType.RIGHT,
+        swipeType: SwipeDirection.RIGHT,
         result: { $in: [SwipeResult.LIKED, SwipeResult.MATCH] },
       }),
     ]);
@@ -696,7 +696,7 @@ export class SwipesService {
     const targetModel =
       role === UserRole.ARTIST ? this.venueModel : this.artistModel;
 
-    const fullProfiles = await targetModel
+    const fullProfiles = await (targetModel as any)
       .find({ _id: { $in: profileIds } })
       .select('-email -phone')
       .lean();
@@ -722,16 +722,17 @@ export class SwipesService {
     const skip = ((query.page ?? 1) - 1) * (query.limit ?? 20);
     const limit = query.limit ?? 20;
 
-    const filter: any = { userId: new Types.ObjectId(userId) };
+    const filter: any = { swiperId: new Types.ObjectId(userId) };
 
     if (query.swipeType) {
-      filter.swipeType = query.swipeType;
+      filter.direction = query.swipeType;
     }
     if (query.result) {
       filter.result = query.result;
     }
     if (query.targetType) {
-      filter.targetType = query.targetType;
+      filter.targetRole =
+        query.targetType === 'artist' ? UserRole.ARTIST : UserRole.VENUE;
     }
 
     const [swipes, total] = await Promise.all([
@@ -768,10 +769,14 @@ export class SwipesService {
             _id: null,
             totalSwipes: { $sum: 1 },
             rightSwipes: {
-              $sum: { $cond: [{ $eq: ['$swipeType', SwipeType.RIGHT] }, 1, 0] },
+              $sum: {
+                $cond: [{ $eq: ['$swipeType', SwipeDirection.RIGHT] }, 1, 0],
+              },
             },
             leftSwipes: {
-              $sum: { $cond: [{ $eq: ['$swipeType', SwipeType.LEFT] }, 1, 0] },
+              $sum: {
+                $cond: [{ $eq: ['$swipeType', SwipeDirection.LEFT] }, 1, 0],
+              },
             },
             matches: {
               $sum: { $cond: [{ $eq: ['$result', SwipeResult.MATCH] }, 1, 0] },
@@ -789,17 +794,21 @@ export class SwipesService {
             _id: null,
             totalSwipes: { $sum: 1 },
             rightSwipes: {
-              $sum: { $cond: [{ $eq: ['$swipeType', SwipeType.RIGHT] }, 1, 0] },
+              $sum: {
+                $cond: [{ $eq: ['$swipeType', SwipeDirection.RIGHT] }, 1, 0],
+              },
             },
             leftSwipes: {
-              $sum: { $cond: [{ $eq: ['$swipeType', SwipeType.LEFT] }, 1, 0] },
+              $sum: {
+                $cond: [{ $eq: ['$swipeType', SwipeDirection.LEFT] }, 1, 0],
+              },
             },
             matches: {
               $sum: { $cond: [{ $eq: ['$result', SwipeResult.MATCH] }, 1, 0] },
             },
             skipped: {
               $sum: {
-                $cond: [{ $eq: ['$result', SwipeResult.SKIPPED] }, 1, 0],
+                $cond: [{ $eq: ['$result', SwipeResult.NO_MATCH] }, 1, 0],
               },
             },
           },
@@ -1034,5 +1043,108 @@ export class SwipesService {
 
   private toRad(deg: number): number {
     return deg * (Math.PI / 180);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MISSING METHODS REFERENCED BY CONTROLLER
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async getSavedProfiles(
+    userId: string,
+    role: UserRole,
+    page: number = 1,
+    limit: number = 20,
+  ) {
+    const skip = (page - 1) * limit;
+
+    // Get profiles that user has swiped right on (saved/liked)
+    const swipes = await this.swipeModel
+      .find({
+        swiperId: new Types.ObjectId(userId),
+        direction: SwipeDirection.RIGHT,
+        result: { $in: [SwipeResult.LIKED, SwipeResult.MATCH] },
+      })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const profileIds = swipes.map((s) => s.targetId);
+    const targetModel =
+      role === UserRole.ARTIST ? this.venueModel : this.artistModel;
+
+    const profiles = await (targetModel as any)
+      .find({ _id: { $in: profileIds } })
+      .lean();
+
+    const total = await this.swipeModel.countDocuments({
+      swiperId: new Types.ObjectId(userId),
+      direction: SwipeDirection.RIGHT,
+    });
+
+    return {
+      profiles,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async getSkippedProfiles(
+    userId: string,
+    role: UserRole,
+    page: number = 1,
+    limit: number = 20,
+  ) {
+    const skip = (page - 1) * limit;
+
+    // Get profiles that user has swiped left on (skipped)
+    const swipes = await this.swipeModel
+      .find({
+        swiperId: new Types.ObjectId(userId),
+        direction: SwipeDirection.LEFT,
+      })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const profileIds = swipes.map((s) => s.targetId);
+    const targetModel =
+      role === UserRole.ARTIST ? this.venueModel : this.artistModel;
+
+    const profiles = await (targetModel as any)
+      .find({ _id: { $in: profileIds } })
+      .lean();
+
+    const total = await this.swipeModel.countDocuments({
+      swiperId: new Types.ObjectId(userId),
+      direction: SwipeDirection.LEFT,
+    });
+
+    return {
+      profiles,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async getRemainingSwipes(userId: string, role: UserRole) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const todayCount = await this.swipeModel.countDocuments({
+      swiperId: new Types.ObjectId(userId),
+      createdAt: { $gte: today },
+    });
+
+    const maxSwipes = this.maxSwipesPerDay[role] ?? 100;
+    const remaining = Math.max(0, maxSwipes - todayCount);
+
+    return {
+      remaining,
+      used: todayCount,
+      max: maxSwipes,
+      resetTime: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+    };
   }
 }

@@ -14,13 +14,15 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthModule } from './auth/auth.module';
 import { ArtistsModule } from './artists/artists.module';
 import { VenuesModule } from './venues/venues.module';
+import { SwipesModule } from './swipes/swipes.module';
 import { GigsModule } from './gigs/gigs.module';
-import { ChatModule } from './chat/chat.module';
-import { ReviewsModule } from './reviews/reviews.module';
-import { PaymentsModule } from './payments/payments.module';
-import { NotificationsModule } from './notifications/notifications.module';
-import { MatchingModule } from './matching/matching.module';
+import { MessagesModule } from './messages/messages.module';
+import { MatchesModule } from './matches/matches.module';
+// import { AnalyticsModule } from './analytics/analytics.module';
+// import { NotificationsModule } from './notifications/notifications.module';
+// import { SubscriptionModule } from './subscription/subscription.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
@@ -49,6 +51,11 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
           stripe: {
             secretKey: process.env.STRIPE_SECRET_KEY,
             webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+            publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+          },
+          fcm: {
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            privateKey: process.env.FIREBASE_PRIVATE_KEY,
           },
           app: {
             port: parseInt(process.env.PORT || '3000'),
@@ -80,10 +87,10 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
+      useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('jwt.secret'),
         signOptions: {
-          expiresIn: configService.get<string>('jwt.expiresIn'),
+          expiresIn: '7d',
         },
       }),
       inject: [ConfigService],
@@ -94,18 +101,22 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
     // ═══════════════════════════════════════════════════════════════════
     CloudinaryModule,
 
+    // 📧 EMAIL - Transactional emails
+    EmailModule,
+
     // ═══════════════════════════════════════════════════════════════════
     // 🎸 FEATURE MODULES
     // ═══════════════════════════════════════════════════════════════════
     AuthModule,
     ArtistsModule,
     VenuesModule,
+    SwipesModule,
     GigsModule,
-    ChatModule,
-    ReviewsModule,
-    PaymentsModule,
-    NotificationsModule,
-    MatchingModule,
+    MessagesModule,
+    MatchesModule,
+    // AnalyticsModule,
+    // NotificationsModule,
+    // SubscriptionModule,
   ],
 })
 export class AppModule {}

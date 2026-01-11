@@ -8,7 +8,11 @@ import { Model } from 'mongoose';
 import { Match, MatchDocument } from '../schemas/match.schema';
 import { Artist, ArtistDocument } from '../schemas/artist.schema';
 import { Venue, VenueDocument } from '../schemas/venue.schema';
-import { GetMatchesDto, UpdateMatchDto, MatchWithDetailsDto } from './dto/match.dto';
+import {
+  GetMatchesDto,
+  UpdateMatchDto,
+  MatchWithDetailsDto,
+} from './dto/match.dto';
 
 @Injectable()
 export class MatchesService {
@@ -25,7 +29,12 @@ export class MatchesService {
     userId: string,
     userRole: string,
     queryDto: GetMatchesDto,
-  ): Promise<{ matches: MatchWithDetailsDto[]; total: number; page: number; pages: number }> {
+  ): Promise<{
+    matches: MatchWithDetailsDto[];
+    total: number;
+    page: number;
+    pages: number;
+  }> {
     const { status = 'active', page = 1, limit = 20 } = queryDto;
 
     const filter: any = {
@@ -100,15 +109,19 @@ export class MatchesService {
   /**
    * Mark match as viewed
    */
-  async markAsViewed(matchId: string, userId: string, userRole: string): Promise<void> {
+  async markAsViewed(
+    matchId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<void> {
     const match = await this.getMatchById(matchId, userId);
 
     if (userRole === 'artist') {
       match.artistLastViewedAt = new Date();
-      match.unreadCount.artist = 0;
+      match.unreadCount = { ...match.unreadCount, artist: 0 };
     } else {
       match.venueLastViewedAt = new Date();
-      match.unreadCount.venue = 0;
+      match.unreadCount = { ...match.unreadCount, venue: 0 };
     }
 
     await match.save();
@@ -151,10 +164,7 @@ export class MatchesService {
   /**
    * Update last message info
    */
-  async updateLastMessage(
-    matchId: string,
-    content: string,
-  ): Promise<void> {
+  async updateLastMessage(matchId: string, content: string): Promise<void> {
     await this.matchModel.findByIdAndUpdate(matchId, {
       hasMessages: true,
       lastMessageAt: new Date(),
@@ -181,45 +191,69 @@ export class MatchesService {
     userId: string,
     userRole: string,
   ): Promise<MatchWithDetailsDto> {
-    const isArtist = match.artistUser.toString() === userId;
-    const otherProfileId = isArtist ? match.venue : match.artist;
+    const isArtist = match.artistUser?.toString() === userId;
+    const otherUserId = isArtist ? match.venueUser : match.artistUser;
     const otherType = isArtist ? 'venue' : 'artist';
 
     let otherUser: MatchWithDetailsDto['otherUser'];
 
     if (otherType === 'artist') {
-      const artist = await this.artistModel.findById(otherProfileId).exec();
+      // Get the artist user to find their artist profile
+      const artistUser = await this.matchModel.db.collection('users').findOne({
+        _id: match.artistUser,
+        role: 'artist',
+      });
+
+      const otherProfileId = artistUser?.artistId;
+      const artist = otherProfileId
+        ? await this.artistModel.findById(otherProfileId).exec()
+        : null;
+
       otherUser = {
-        id: match.artistUser.toString(),
+        id: match.artistUser?.toString() || '',
         name: artist?.displayName || 'Unknown Artist',
         profilePhoto: artist?.profilePhoto,
         type: 'artist',
-        profileId: otherProfileId.toString(),
+        profileId: otherProfileId?.toString() || '',
       };
     } else {
-      const venue = await this.venueModel.findById(otherProfileId).exec();
+      // Get the venue user to find their venue profile
+      const venueUser = await this.matchModel.db.collection('users').findOne({
+        _id: match.venueUser,
+        role: 'venue',
+      });
+
+      const otherProfileId = venueUser?.venueId;
+      const venue = otherProfileId
+        ? await this.venueModel.findById(otherProfileId).exec()
+        : null;
+
       otherUser = {
-        id: match.venueUser.toString(),
+        id: match.venueUser?.toString() || '',
         name: venue?.venueName || 'Unknown Venue',
         profilePhoto: venue?.coverPhoto,
         type: 'venue',
-        profileId: otherProfileId.toString(),
+        profileId: otherProfileId?.toString() || '',
       };
     }
 
     const unreadCount = isArtist
-      ? match.unreadCount.artist
-      : match.unreadCount.venue;
+      ? match.unreadCount?.artist || 0
+      : match.unreadCount?.venue || 0;
+
+    // Safely get matchedAt date with fallback
+    const matchedAtDate =
+      (match as any).matchedAt || match.createdAt || new Date();
 
     return {
       id: match._id.toString(),
-      matchedAt: match.createdAt || new Date(),
+      matchedAt: matchedAtDate,
       status: match.status,
       otherUser,
       lastMessage: match.hasMessages
         ? {
             content: match.lastMessagePreview || '',
-            sentAt: match.lastMessageAt!,
+            sentAt: match.lastMessageAt || new Date(),
             isRead: unreadCount === 0,
           }
         : undefined,

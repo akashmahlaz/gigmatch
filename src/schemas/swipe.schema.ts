@@ -56,3 +56,28 @@ SwipeSchema.index({ swiper: 1, action: 1 });
 SwipeSchema.index({ target: 1, action: 1 });
 SwipeSchema.index({ isMatch: 1 });
 SwipeSchema.index({ createdAt: -1 });
+
+
+// Enums
+export enum SwipeType {
+  LEFT = "left",
+  RIGHT = "right",
+}
+
+export enum SwipeResult {
+  LIKED = "liked",
+  SKIPPED = "skipped",
+  MATCH = "match",
+  EXPIRED = "expired",
+}
+
+export enum SwipeDirection {
+  LEFT = "left",
+  RIGHT = "right",
+}
+
+export enum SwipeSource {
+  DISCOVERY = "discovery",
+  MATCHES = "matches",
+  SAVED = "saved",
+}

@@ -6,8 +6,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type VenueDocument = Venue & Document;
-
 // ═══════════════════════════════════════════════════════════════════════════
 // ENUMS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -88,7 +86,8 @@ export class VenueSocialLinks {
   theknot?: string;
 }
 
-export const VenueSocialLinksSchema = SchemaFactory.createForClass(VenueSocialLinks);
+export const VenueSocialLinksSchema =
+  SchemaFactory.createForClass(VenueSocialLinks);
 
 /// Location with GeoJSON coordinates for artist discovery
 @Schema({ _id: false })
@@ -139,7 +138,8 @@ export class OperatingHours {
   specialNotes?: string;
 }
 
-export const OperatingHoursSchema = SchemaFactory.createForClass(OperatingHours);
+export const OperatingHoursSchema =
+  SchemaFactory.createForClass(OperatingHours);
 
 /// Equipment and amenities provided by venue
 @Schema({ _id: false })
@@ -220,7 +220,8 @@ export class VenueEquipment {
   equipmentNotes?: string;
 }
 
-export const VenueEquipmentSchema = SchemaFactory.createForClass(VenueEquipment);
+export const VenueEquipmentSchema =
+  SchemaFactory.createForClass(VenueEquipment);
 
 /// Gig posted by venue
 @Schema({ _id: true })
@@ -331,7 +332,8 @@ export class VenueReviewStats {
   paymentScore: number = 0.0;
 }
 
-export const VenueReviewStatsSchema = SchemaFactory.createForClass(VenueReviewStats);
+export const VenueReviewStatsSchema =
+  SchemaFactory.createForClass(VenueReviewStats);
 
 /// Past booking reference
 @Schema({ _id: true })
@@ -470,13 +472,18 @@ export class Venue {
   equipment: VenueEquipment = new VenueEquipment();
 
   /// Photos of the venue
-  @Prop({ type: [{
-    url: String,
-    caption?: String,
-    isPrimary: Boolean,
-    order: Number,
-    uploadedAt: Date,
-  }], default: [] })
+  @Prop({
+    type: [
+      {
+        url: String,
+        caption: String,
+        isPrimary: Boolean,
+        order: Number,
+        uploadedAt: Date,
+      },
+    ],
+    default: [],
+  })
   photos: Array<{
     url: string;
     caption?: string;
@@ -638,6 +645,7 @@ export class Venue {
   updatedAt: Date;
 }
 
+export type VenueDocument = Venue & Document;
 export const VenueSchema = SchemaFactory.createForClass(Venue);
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -645,10 +653,18 @@ export const VenueSchema = SchemaFactory.createForClass(Venue);
 // ═══════════════════════════════════════════════════════════════════════════
 
 VenueSchema.index({ userId: 1 }, { unique: true });
-VenueSchema.index({ venueName: 'text', description: 'text', searchTags: 'text' });
+VenueSchema.index({
+  venueName: 'text',
+  description: 'text',
+  searchTags: 'text',
+});
 VenueSchema.index({ venueType: 1 });
 VenueSchema.index({ 'location.coordinates': '2dsphere' });
-VenueSchema.index({ 'location.city': 1, 'location.state': 1, 'location.country': 1 });
+VenueSchema.index({
+  'location.city': 1,
+  'location.state': 1,
+  'location.country': 1,
+});
 VenueSchema.index({ isVerified: 1, isProfileVisible: 1 });
 VenueSchema.index({ hasCompletedSetup: 1 });
 VenueSchema.index({ isOpenForBookings: 1 });
@@ -660,7 +676,11 @@ VenueSchema.index({ totalGigsHosted: -1 });
 VenueSchema.index({ createdAt: -1 });
 
 // Compound indexes for common queries
-VenueSchema.index({ isProfileVisible: 1, hasCompletedSetup: 1, preferredGenres: 1 });
+VenueSchema.index({
+  isProfileVisible: 1,
+  hasCompletedSetup: 1,
+  preferredGenres: 1,
+});
 VenueSchema.index({ 'location.coordinates': '2dsphere' }, { sparse: true });
 VenueSchema.index({ isVerified: 1, 'reviewStats.averageRating': -1 });
 VenueSchema.index({ isOpenForBookings: 1, budgetMin: 1, budgetMax: 1 });
@@ -685,9 +705,7 @@ VenueSchema.virtual('fullLocation').get(function (): string {
 /// Virtual for checking if venue is open today
 VenueSchema.virtual('isOpenToday').get(function (): boolean {
   const today = new Date().getDay();
-  return this.operatingHours.some(
-    (h) => h.dayOfWeek === today && h.isOpen,
-  );
+  return this.operatingHours.some((h) => h.dayOfWeek === today && h.isOpen);
 });
 
 /// Virtual for primary contact
@@ -749,14 +767,16 @@ VenueSchema.methods.updateReviewStats = function (): void {
   }
 
   // Calculate weighted average
-  const totalWeight = this.reviewStats.fiveStarCount * 5 +
+  const totalWeight =
+    this.reviewStats.fiveStarCount * 5 +
     this.reviewStats.fourStarCount * 4 +
     this.reviewStats.threeStarCount * 3 +
     this.reviewStats.twoStarCount * 2 +
     this.reviewStats.oneStarCount * 1;
 
   this.reviewStats.averageRating = totalWeight / this.reviewStats.totalReviews;
-  this.reviewStats.averageRating = Math.round(this.reviewStats.averageRating * 10) / 10;
+  this.reviewStats.averageRating =
+    Math.round(this.reviewStats.averageRating * 10) / 10;
 };
 
 /// Check if venue can accept new booking on given date
@@ -787,16 +807,27 @@ VenueSchema.methods.getAvailableSlots = function (date: Date): number {
 };
 
 /// Pre-save hook to calculate profile completeness
-VenueSchema.pre('save', function (next) {
-  if (this.isModified('venueName') || this.isModified('description') ||
-      this.isModified('venueType') || this.isModified('location') ||
-      this.isModified('phone') || this.isModified('contactEmail') ||
-      this.isModified('contacts') || this.isModified('photos') ||
-      this.isModified('equipment') || this.isModified('preferredGenres') ||
-      this.isModified('budgetMin') || this.isModified('budgetMax') ||
-      this.isModified('socialLinks') || this.isModified('tagline') ||
-      this.isModified('virtualTourUrl')) {
-    this.profileCompleteness = this.calculateProfileCompleteness();
+VenueSchema.pre('save', function (this: VenueDocument, next: any) {
+  if (
+    this.isModified('venueName') ||
+    this.isModified('description') ||
+    this.isModified('venueType') ||
+    this.isModified('location') ||
+    this.isModified('phone') ||
+    this.isModified('contactEmail') ||
+    this.isModified('contacts') ||
+    this.isModified('photos') ||
+    this.isModified('equipment') ||
+    this.isModified('preferredGenres') ||
+    this.isModified('budgetMin') ||
+    this.isModified('budgetMax') ||
+    this.isModified('socialLinks') ||
+    this.isModified('tagline') ||
+    this.isModified('virtualTourUrl')
+  ) {
+    (this as any).profileCompleteness = (
+      this as any
+    ).calculateProfileCompleteness();
     this.hasCompletedSetup = this.profileCompleteness >= 80;
   }
 
@@ -830,7 +861,6 @@ VenueSchema.methods.toPublicProfile = function () {
         }
       : null,
     capacity: this.capacity,
-    venueType: this.venueType,
     preferredGenres: this.preferredGenres,
     equipment: {
       hasSoundSystem: this.equipment.hasSoundSystem,
@@ -840,7 +870,7 @@ VenueSchema.methods.toPublicProfile = function () {
       hasParking: this.equipment.hasParking,
       isWheelchairAccessible: this.equipment.isWheelchairAccessible,
     },
-    photos: this.photos.map((p) => ({
+    photos: this.photos.map((p: any) => ({
       url: p.url,
       caption: p.caption,
     })),
@@ -875,3 +905,4 @@ VenueSchema.methods.toSearchable = function () {
     totalGigsHosted: this.totalGigsHosted,
   };
 };
+

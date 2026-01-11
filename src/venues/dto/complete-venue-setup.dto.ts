@@ -148,7 +148,10 @@ export class VenueLocationDto {
   @MaxLength(100)
   city?: string;
 
-  @ApiPropertyOptional({ example: 'New York', description: 'State or province' })
+  @ApiPropertyOptional({
+    example: 'New York',
+    description: 'State or province',
+  })
   @IsOptional()
   @IsString()
   @MinLength(2)
@@ -162,7 +165,10 @@ export class VenueLocationDto {
   @MaxLength(100)
   country?: string;
 
-  @ApiPropertyOptional({ example: '123 Main Street, New York, NY 10001', description: 'Full street address' })
+  @ApiPropertyOptional({
+    example: '123 Main Street, New York, NY 10001',
+    description: 'Full street address',
+  })
   @IsOptional()
   @IsString()
   @MinLength(5)
@@ -211,7 +217,10 @@ export class VenuePhotoDto {
   @IsUrl()
   url: string;
 
-  @ApiPropertyOptional({ example: 'Main stage view', description: 'Photo description' })
+  @ApiPropertyOptional({
+    example: 'Main stage view',
+    description: 'Photo description',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(200)
@@ -224,26 +233,38 @@ export class VenuePhotoDto {
   @Max(20)
   order?: number;
 
-  @ApiPropertyOptional({ example: true, description: 'Is this the main/cover photo' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Is this the main/cover photo',
+  })
   @IsOptional()
   @IsBoolean()
   isPrimary?: boolean;
 }
 
 export class VirtualTourDto {
-  @ApiPropertyOptional({ example: 'https://my.matterport.com/show/?m=xxx', description: 'Virtual tour URL' })
+  @ApiPropertyOptional({
+    example: 'https://my.matterport.com/show/?m=xxx',
+    description: 'Virtual tour URL',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
   tourUrl?: string;
 
-  @ApiPropertyOptional({ example: 'https://www.youtube.com/watch?v=xxx', description: 'Walkthrough video URL' })
+  @ApiPropertyOptional({
+    example: 'https://www.youtube.com/watch?v=xxx',
+    description: 'Walkthrough video URL',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
   videoUrl?: string;
 
-  @ApiPropertyOptional({ example: 'https://maps.google.com/...?place_id=xxx', description: 'Google Maps link' })
+  @ApiPropertyOptional({
+    example: 'https://maps.google.com/...?place_id=xxx',
+    description: 'Google Maps link',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
@@ -255,14 +276,20 @@ export class VirtualTourDto {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class OperatingHoursDto {
-  @ApiPropertyOptional({ example: '09:00', description: 'Opening time (HH:MM)' })
+  @ApiPropertyOptional({
+    example: '09:00',
+    description: 'Opening time (HH:MM)',
+  })
   @IsOptional()
   @Matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
     message: 'Opening time must be in HH:MM format',
   })
   openingTime?: string;
 
-  @ApiPropertyOptional({ example: '22:00', description: 'Closing time (HH:MM)' })
+  @ApiPropertyOptional({
+    example: '22:00',
+    description: 'Closing time (HH:MM)',
+  })
   @IsOptional()
   @Matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
     message: 'Closing time must be in HH:MM format',
@@ -274,7 +301,10 @@ export class OperatingHoursDto {
   @IsBoolean()
   isClosed?: boolean;
 
-  @ApiPropertyOptional({ example: 'Happy hour 4-7pm', description: 'Special notes for this day' })
+  @ApiPropertyOptional({
+    example: 'Happy hour 4-7pm',
+    description: 'Special notes for this day',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(200)
@@ -330,7 +360,10 @@ export class WeeklyHoursDto {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class EquipmentDto {
-  @ApiPropertyOptional({ example: true, description: 'Has professional PA system' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Has professional PA system',
+  })
   @IsOptional()
   @IsBoolean()
   hasSoundSystem?: boolean;
@@ -395,25 +428,37 @@ export class EquipmentDto {
   @IsBoolean()
   isWheelchairAccessible?: boolean;
 
-  @ApiPropertyOptional({ example: 'Full backline including drum kit, amps for 3 guitars', description: 'Available backline list' })
+  @ApiPropertyOptional({
+    example: 'Full backline including drum kit, amps for 3 guitars',
+    description: 'Available backline list',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)
   backlineList?: string;
 
-  @ApiPropertyOptional({ example: '3-phase power access available', description: 'Power requirements info' })
+  @ApiPropertyOptional({
+    example: '3-phase power access available',
+    description: 'Power requirements info',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(300)
   powerInfo?: string;
 
-  @ApiPropertyOptional({ example: 'Stage plot PDF URL', description: 'Stage plot document' })
+  @ApiPropertyOptional({
+    example: 'Stage plot PDF URL',
+    description: 'Stage plot document',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
   stagePlotUrl?: string;
 
-  @ApiPropertyOptional({ example: '20x15 feet', description: 'Stage dimensions' })
+  @ApiPropertyOptional({
+    example: '20x15 feet',
+    description: 'Stage dimensions',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -448,7 +493,7 @@ export class GigPreferencesDto {
   })
   @IsOptional()
   @IsArray()
-  @IsIn(GigType, { each: true })
+  @IsIn(Object.values(GigType), { each: true })
   gigTypes?: GigType[];
 
   @ApiPropertyOptional({
@@ -481,40 +526,61 @@ export class GigPreferencesDto {
   @IsEnum(Currency)
   currency?: Currency;
 
-  @ApiPropertyOptional({ example: 3, description: 'Average gig duration in hours' })
+  @ApiPropertyOptional({
+    example: 3,
+    description: 'Average gig duration in hours',
+  })
   @IsOptional()
   @IsNumber()
   @Min(1)
   @Max(12)
   avgGigDuration?: number;
 
-  @ApiPropertyOptional({ example: true, description: 'Can provide meals/drinks for performers' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Can provide meals/drinks for performers',
+  })
   @IsOptional()
   @IsBoolean()
   providesMusicianMeals?: boolean;
 
-  @ApiPropertyOptional({ example: true, description: 'Provides green room drinks/snacks' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Provides green room drinks/snacks',
+  })
   @IsOptional()
   @IsBoolean()
   providesGreenRoomRefreshments?: boolean;
 
-  @ApiPropertyOptional({ example: 'Looking for high-energy jazz bands', description: 'Additional notes for artists' })
+  @ApiPropertyOptional({
+    example: 'Looking for high-energy jazz bands',
+    description: 'Additional notes for artists',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)
   notesForArtists?: string;
 
-  @ApiPropertyOptional({ example: true, description: 'Looking for new artists' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Looking for new artists',
+  })
   @IsOptional()
   @IsBoolean()
   openToNewArtists?: boolean;
 
-  @ApiPropertyOptional({ example: true, description: 'Accepting demo submissions' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Accepting demo submissions',
+  })
   @IsOptional()
   @IsBoolean()
   acceptsDemos?: boolean;
 
-  @ApiPropertyOptional({ example: 'demo@venue.com', description: 'Demo submission email' })
+  @ApiPropertyOptional({
+    example: 'demo@venue.com',
+    description: 'Demo submission email',
+  })
   @IsOptional()
   @IsEmail()
   demoSubmissionEmail?: string;
@@ -525,41 +591,62 @@ export class GigPreferencesDto {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class SocialLinksDto {
-  @ApiPropertyOptional({ example: '@venueinstagram', description: 'Instagram handle' })
+  @ApiPropertyOptional({
+    example: '@venueinstagram',
+    description: 'Instagram handle',
+  })
   @IsOptional()
   @IsString()
   instagram?: string;
 
-  @ApiPropertyOptional({ example: 'https://facebook.com/venue', description: 'Facebook page' })
+  @ApiPropertyOptional({
+    example: 'https://facebook.com/venue',
+    description: 'Facebook page',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
   facebook?: string;
 
-  @ApiPropertyOptional({ example: 'https://twitter.com/venue', description: 'Twitter handle' })
+  @ApiPropertyOptional({
+    example: 'https://twitter.com/venue',
+    description: 'Twitter handle',
+  })
   @IsOptional()
   @IsString()
   twitter?: string;
 
-  @ApiPropertyOptional({ example: 'https://www.venue.com', description: 'Website URL' })
+  @ApiPropertyOptional({
+    example: 'https://www.venue.com',
+    description: 'Website URL',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
   website?: string;
 
-  @ApiPropertyOptional({ example: 'https://www.yelp.com/...', description: 'Yelp page' })
+  @ApiPropertyOptional({
+    example: 'https://www.yelp.com/...',
+    description: 'Yelp page',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
   yelp?: string;
 
-  @ApiPropertyOptional({ example: 'https://www.google.com/maps/...', description: 'Google Maps listing' })
+  @ApiPropertyOptional({
+    example: 'https://www.google.com/maps/...',
+    description: 'Google Maps listing',
+  })
   @IsOptional()
   @IsString()
   @IsUrl()
   googleMaps?: string;
 
-  @ApiPropertyOptional({ example: 'https://venue.tiktok.com', description: 'TikTok' })
+  @ApiPropertyOptional({
+    example: 'https://venue.tiktok.com',
+    description: 'TikTok',
+  })
   @IsOptional()
   @IsString()
   tiktok?: string;
@@ -879,7 +966,7 @@ export class VenueSearchQueryDto {
   latitude?: number;
 
   @ApiPropertyOptional({
-    example: -74.0060,
+    example: -74.006,
     description: 'Longitude for location-based search',
   })
   @IsOptional()
