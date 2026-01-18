@@ -37,6 +37,10 @@ export class VenuesService {
         user: userId,
         venueName: user.fullName || 'Venue',
         venueType: 'bar',
+        location: {
+          city: 'Unknown',
+          country: 'Unknown',
+        },
         isProfileVisible: false,
         hasCompletedSetup: false,
         isAcceptingBookings: false,
@@ -134,6 +138,10 @@ export class VenuesService {
           user: userId,
           venueName: updateData?.venueName || user.fullName || 'Venue',
           venueType: updateData?.venueType || 'bar',
+          location: updateData?.location || {
+            city: 'Unknown',
+            country: 'Unknown',
+          },
           isProfileVisible: false,
           hasCompletedSetup: false,
           isAcceptingBookings: false,

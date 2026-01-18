@@ -412,9 +412,9 @@ export class SwipesService {
 
     // Build match query
     const matchQuery: any = {
-      isProfileVisible: true,
-      hasCompletedSetup: true,
-      isVerified: true, // Prioritize verified artists
+      isProfileVisible: { $ne: false }, // Show unless explicitly hidden
+      hasCompletedSetup: { $ne: false }, // Show unless explicitly incomplete
+      // Don't require isVerified - show all artists (verified ones are prioritized in sorting)
     };
 
     // Genre matching
