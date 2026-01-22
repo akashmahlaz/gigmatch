@@ -74,7 +74,6 @@ export class Gig {
       country: { type: String },
       postalCode: { type: String },
     }),
-    index: '2dsphere',
   })
   location?: {
     type: string;
@@ -267,8 +266,8 @@ export class Gig {
 
   /// Additional metadata
   @ApiPropertyOptional({ description: 'Additional metadata' })
-  @Prop({ type: Map, of: SchemaFactory.createForClass(Object) })
-  metadata?: Map<string, any>;
+  @Prop({ type: Object })
+  metadata?: Record<string, any>;
 }
 
 export type GigDocument = Gig & Document;

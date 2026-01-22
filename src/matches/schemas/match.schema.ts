@@ -77,8 +77,8 @@ export class Match {
   reportCount: number;
   @ApiProperty() @Prop({ type: String }) reportReason?: string;
   @ApiProperty()
-  @Prop({ type: Map, of: SchemaFactory.createForClass(Object) })
-  metadata?: Map<string, any>;
+  @Prop({ type: Object })
+  metadata?: Record<string, any>;
   @ApiProperty()
   @Prop({ type: Boolean, default: false })
   hasMessages: boolean;

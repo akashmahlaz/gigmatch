@@ -176,8 +176,8 @@ export class Swipe {
 
   /// Additional metadata
   @ApiPropertyOptional({ description: 'Additional metadata' })
-  @Prop({ type: Map, of: SchemaFactory.createForClass(Object) })
-  metadata?: Map<string, any>;
+  @Prop({ type: Object })
+  metadata?: Record<string, any>;
 }
 
 export type SwipeDocument = Swipe & Document;
