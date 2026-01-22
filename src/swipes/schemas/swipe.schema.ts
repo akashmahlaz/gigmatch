@@ -43,7 +43,7 @@ export enum SwipeSource {
 export class Swipe {
   /// User who performed the swipe
   @ApiProperty({ description: 'Swiper user ID' })
-  @Prop({ type: Types.ObjectId, required: true, index: true })
+  @Prop({ type: Types.ObjectId, required: true })
   swiperId: Types.ObjectId;
 
   /// Role of the swiping user
@@ -53,7 +53,7 @@ export class Swipe {
 
   /// Target user being swiped on
   @ApiProperty({ description: 'Target user ID' })
-  @Prop({ type: Types.ObjectId, required: true, index: true })
+  @Prop({ type: Types.ObjectId, required: true })
   targetId: Types.ObjectId;
 
   /// Role of the target user
@@ -67,7 +67,6 @@ export class Swipe {
     type: String,
     enum: Object.values(SwipeDirection),
     required: true,
-    index: true,
   })
   direction: SwipeDirection;
 
@@ -91,12 +90,12 @@ export class Swipe {
 
   /// Related gig ID (if swiping on a specific gig)
   @ApiPropertyOptional({ description: 'Related gig ID' })
-  @Prop({ type: Types.ObjectId, index: true, sparse: true })
+  @Prop({ type: Types.ObjectId, sparse: true })
   relatedGigId?: Types.ObjectId;
 
   /// Genre tag associated with the swipe
   @ApiPropertyOptional({ description: 'Genre tag' })
-  @Prop({ type: String, index: true })
+  @Prop({ type: String })
   genre?: string;
 
   /// Distance in kilometers (calculated at swipe time)
@@ -171,7 +170,7 @@ export class Swipe {
 
   /// Session ID for grouping related swipes
   @ApiPropertyOptional({ description: 'Session ID for swipe session' })
-  @Prop({ type: String, index: true })
+  @Prop({ type: String })
   sessionId?: string;
 
   /// Additional metadata

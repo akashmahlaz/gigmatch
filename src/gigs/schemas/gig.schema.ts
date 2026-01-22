@@ -54,7 +54,7 @@ export enum PaymentType {
 export class Gig {
   /// Venue that posted the gig
   @ApiProperty({ description: 'Venue user ID' })
-  @Prop({ type: Types.ObjectId, required: true, index: true })
+  @Prop({ type: Types.ObjectId, required: true })
   venue: Types.ObjectId;
 
   /// Venue name (denormalized for display)
@@ -114,12 +114,12 @@ export class Gig {
 
   /// Genre preferences
   @ApiProperty({ type: [String], description: 'Preferred genres' })
-  @Prop({ type: [String], default: [], index: true })
+  @Prop({ type: [String], default: [] })
   genres: string[];
 
   /// Date and time
   @ApiProperty({ description: 'Gig date and time' })
-  @Prop({ type: Date, required: true, index: true })
+  @Prop({ type: Date, required: true })
   date: Date;
 
   /// End time (if known)
@@ -200,7 +200,6 @@ export class Gig {
     type: String,
     enum: Object.values(GigStatus),
     default: GigStatus.DRAFT,
-    index: true,
   })
   status: GigStatus;
 
@@ -216,7 +215,7 @@ export class Gig {
 
   /// Featured/sponsored
   @ApiProperty({ description: 'Featured gig' })
-  @Prop({ type: Boolean, default: false, index: true })
+  @Prop({ type: Boolean, default: false })
   isFeatured: boolean;
 
   /// Boost expiration

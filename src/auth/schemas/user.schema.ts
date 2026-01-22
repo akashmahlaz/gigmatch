@@ -200,9 +200,6 @@ export class User {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Compound unique index for email (redundant but explicit)
-UserSchema.index({ email: 1 }, { unique: true });
-
 // Index for role-based queries
 UserSchema.index({ role: 1, status: 1 });
 

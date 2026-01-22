@@ -349,7 +349,7 @@ export class Artist {
   _id: Types.ObjectId;
 
   /// Reference to User account
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId!: Types.ObjectId;
 
   /// Display name (can be different from user name)
@@ -570,7 +570,6 @@ ArtistSchema.index({ createdAt: -1 });
 
 // Compound indexes for common queries
 ArtistSchema.index({ isProfileVisible: 1, hasCompletedSetup: 1, genres: 1 });
-ArtistSchema.index({ 'location.coordinates': '2dsphere' }, { sparse: true });
 ArtistSchema.index({ isVerified: 1, 'reviewStats.averageRating': -1 });
 
 // ═══════════════════════════════════════════════════════════════════════════

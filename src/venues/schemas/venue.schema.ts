@@ -398,7 +398,7 @@ export class Venue {
   _id: Types.ObjectId;
 
   /// Reference to User account
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId!: Types.ObjectId;
 
   /// Venue official name
@@ -681,7 +681,6 @@ VenueSchema.index({
   hasCompletedSetup: 1,
   preferredGenres: 1,
 });
-VenueSchema.index({ 'location.coordinates': '2dsphere' }, { sparse: true });
 VenueSchema.index({ isVerified: 1, 'reviewStats.averageRating': -1 });
 VenueSchema.index({ isOpenForBookings: 1, budgetMin: 1, budgetMax: 1 });
 
