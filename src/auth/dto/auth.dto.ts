@@ -119,7 +119,7 @@ export class ChangePasswordDto {
 }
 
 export class GoogleAuthDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Google ID token from client SDK' })
   @IsString()
   @IsNotEmpty()
   idToken: string;
@@ -128,6 +128,21 @@ export class GoogleAuthDto {
   @IsOptional()
   @IsEnum(['artist', 'venue'])
   role?: 'artist' | 'venue';
+
+  @ApiPropertyOptional({ description: 'User email from Google (optional, extracted from token)' })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiPropertyOptional({ description: 'User display name from Google' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({ description: 'User profile photo URL from Google' })
+  @IsOptional()
+  @IsString()
+  photoUrl?: string;
 }
 
 export class AppleAuthDto {
