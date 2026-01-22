@@ -112,8 +112,15 @@ export class User {
   pushNotificationToken: string;
 
   /// Device information for push notifications
-  @Prop({ default: null })
-  deviceInfo: {
+  @Prop({
+    type: {
+      platform: { type: String },
+      deviceId: { type: String },
+      appVersion: { type: String },
+    },
+    default: null,
+  })
+  deviceInfo?: {
     platform: string;
     deviceId: string;
     appVersion: string;
