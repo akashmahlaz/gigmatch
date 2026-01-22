@@ -27,8 +27,13 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   ChangePasswordDto,
+  GoogleAuthDto,
+  AppleAuthDto,
 } from './dto/auth.dto';
 import { EmailService } from '../email/email.service';
+import { OAuth2Client } from 'google-auth-library';
+import * as jwt from 'jsonwebtoken';
+import jwksRsa from 'jwks-rsa';
 
 export interface AuthTokens {
   accessToken: string;
@@ -51,6 +56,8 @@ export interface AuthResponse extends AuthTokens {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private googleClient: OAuth2Client;
+  private appleJwksClient: jwksRsa.JwksClient;
 
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
@@ -61,7 +68,19 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
-  ) {}
+  ) {
+    // Initialize Google OAuth client
+    this.googleClient = new OAuth2Client(
+      this.configService.get<string>('GOOGLE_CLIENT_ID'),
+    );
+    
+    // Initialize Apple JWKS client for token verification
+    this.appleJwksClient = jwksRsa({
+      jwksUri: 'https://appleid.apple.com/auth/keys',
+      cache: true,
+      cacheMaxAge: 86400000, // 24 hours
+    });
+  }
 
   /**
    * Register a new user with race condition protection
@@ -339,6 +358,11 @@ export class AuthService {
       return null;
     }
 
+    // Social login users may not have a password
+    if (!user.password) {
+      return null;
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
@@ -522,6 +546,11 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
 
+    // Social login users may not have a password
+    if (!user.password) {
+      throw new BadRequestException('Password change not available for social login accounts');
+    }
+
     const isPasswordValid = await bcrypt.compare(
       currentPassword,
       user.password,
@@ -596,6 +625,254 @@ export class AuthService {
       accessToken,
       refreshToken,
       expiresIn: 900,
+    };
+  }
+
+  /**
+   * Authenticate with Google ID token
+   */
+  async googleAuth(googleAuthDto: GoogleAuthDto): Promise<AuthResponse> {
+    const { idToken, role } = googleAuthDto;
+
+    try {
+      // Verify the Google ID token
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken,
+        audience: this.configService.get<string>('GOOGLE_CLIENT_ID'),
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email) {
+        throw new UnauthorizedException('Invalid Google token');
+      }
+
+      const { email, name, sub: googleId } = payload;
+      const fullName = name || email.split('@')[0];
+
+      // Check if user already exists
+      let user = await this.userModel.findOne({ email }).exec();
+
+      if (user) {
+        // Existing user - just login
+        return this.loginSocialUser(user);
+      }
+
+      // New user - require role selection
+      if (!role) {
+        throw new BadRequestException(
+          'Role is required for new users. Please select artist or venue.',
+        );
+      }
+
+      // Create new user
+      const newUser = await this.createSocialUser({
+        email,
+        fullName,
+        role,
+        googleId,
+        provider: 'google',
+      });
+
+      return this.loginSocialUser(newUser);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      this.logger.error(
+        `Google auth failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new UnauthorizedException('Google authentication failed');
+    }
+  }
+
+  /**
+   * Authenticate with Apple identity token
+   */
+  async appleAuth(appleAuthDto: AppleAuthDto): Promise<AuthResponse> {
+    const { identityToken, fullName: providedName, role } = appleAuthDto;
+
+    try {
+      // Decode the token header to get the key ID
+      const decodedHeader = jwt.decode(identityToken, { complete: true });
+      if (!decodedHeader || typeof decodedHeader === 'string') {
+        throw new UnauthorizedException('Invalid Apple token format');
+      }
+
+      const kid = decodedHeader.header.kid;
+      if (!kid) {
+        throw new UnauthorizedException('Apple token missing key ID');
+      }
+
+      // Get the signing key from Apple
+      const key = await this.appleJwksClient.getSigningKey(kid);
+      const publicKey = key.getPublicKey();
+
+      // Verify the token
+      const payload = jwt.verify(identityToken, publicKey, {
+        algorithms: ['RS256'],
+        issuer: 'https://appleid.apple.com',
+        audience: this.configService.get<string>('APPLE_CLIENT_ID'),
+      }) as jwt.JwtPayload;
+
+      if (!payload.sub || !payload.email) {
+        throw new UnauthorizedException('Invalid Apple token payload');
+      }
+
+      const { email, sub: appleId } = payload;
+      // Apple only provides name on first sign-in, use provided name or email prefix
+      const fullName = providedName || email.split('@')[0];
+
+      // Check if user already exists
+      let user = await this.userModel.findOne({ email }).exec();
+
+      if (user) {
+        // Existing user - just login
+        return this.loginSocialUser(user);
+      }
+
+      // New user - require role selection
+      if (!role) {
+        throw new BadRequestException(
+          'Role is required for new users. Please select artist or venue.',
+        );
+      }
+
+      // Create new user
+      const newUser = await this.createSocialUser({
+        email,
+        fullName,
+        role,
+        appleId,
+        provider: 'apple',
+      });
+
+      return this.loginSocialUser(newUser);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      this.logger.error(
+        `Apple auth failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new UnauthorizedException('Apple authentication failed');
+    }
+  }
+
+  /**
+   * Create a new user from social login
+   */
+  private async createSocialUser(data: {
+    email: string;
+    fullName: string;
+    role: 'artist' | 'venue';
+    googleId?: string;
+    appleId?: string;
+    provider: 'google' | 'apple';
+  }): Promise<UserDocument> {
+    const { email, fullName, role, googleId, appleId } = data;
+
+    // Create user without password (social login)
+    const user = await this.userModel.create({
+      email,
+      fullName,
+      role,
+      googleId,
+      appleId,
+      isActive: true,
+      isEmailVerified: true, // Social login emails are verified
+    });
+
+    let profileId: string | undefined;
+
+    // Create profile based on role
+    if (role === 'artist') {
+      const artist = await this.artistModel.create({
+        user: user._id,
+        displayName: fullName,
+        location: {
+          city: 'Not Set',
+          country: 'Not Set',
+          travelRadius: 50,
+        },
+        isProfileVisible: false,
+        hasCompletedSetup: false,
+      });
+      profileId = artist._id.toString();
+      user.artistProfile = artist._id;
+      await user.save();
+
+      // Create free subscription
+      await this.subscriptionModel.create({
+        user: user._id,
+        artist: artist._id,
+        plan: 'free',
+        status: 'active',
+        features: {
+          dailySwipeLimit: 10,
+          canSeeWhoLikedYou: false,
+          boostsPerMonth: 0,
+          priorityInSearch: false,
+          advancedAnalytics: false,
+          customProfileUrl: false,
+          verifiedBadge: false,
+          unlimitedMessages: true,
+        },
+      });
+    } else if (role === 'venue') {
+      const venue = await this.venueModel.create({
+        user: user._id,
+        venueName: fullName,
+        venueType: 'bar',
+        location: {
+          city: 'Not Set',
+          country: 'Not Set',
+        },
+        isProfileVisible: false,
+        hasCompletedSetup: false,
+      });
+      profileId = venue._id.toString();
+      user.venueProfile = venue._id;
+      await user.save();
+    }
+
+    this.logger.log(`Created new ${role} user via social login: ${email}`);
+    return user;
+  }
+
+  /**
+   * Login an existing social user
+   */
+  private async loginSocialUser(user: UserDocument): Promise<AuthResponse> {
+    const tokens = await this.generateTokens(user);
+
+    user.refreshToken = tokens.refreshToken;
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    let profileId: string | undefined;
+    let hasCompletedSetup = false;
+
+    if (user.role === 'artist' && user.artistProfile) {
+      const artist = await this.artistModel.findById(user.artistProfile).exec();
+      profileId = artist?._id.toString();
+      hasCompletedSetup = artist?.hasCompletedSetup ?? false;
+    } else if (user.role === 'venue' && user.venueProfile) {
+      const venue = await this.venueModel.findById(user.venueProfile).exec();
+      profileId = venue?._id.toString();
+      hasCompletedSetup = venue?.hasCompletedSetup ?? false;
+    }
+
+    return {
+      ...tokens,
+      user: {
+        id: user._id.toString(),
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        profileId,
+        hasCompletedSetup,
+        isEmailVerified: user.isEmailVerified,
+      },
     };
   }
 }

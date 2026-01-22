@@ -22,6 +22,8 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   ChangePasswordDto,
+  GoogleAuthDto,
+  AppleAuthDto,
 } from './dto/auth.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -132,6 +134,28 @@ export class AuthController {
       fullName: user.fullName,
       role: user.role,
     };
+  }
+
+  @Public()
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Authenticate with Google' })
+  @ApiResponse({ status: 200, description: 'Google authentication successful' })
+  @ApiResponse({ status: 401, description: 'Invalid Google token' })
+  @ApiResponse({ status: 400, description: 'Role required for new users' })
+  async googleAuth(@Body() googleAuthDto: GoogleAuthDto) {
+    return this.authService.googleAuth(googleAuthDto);
+  }
+
+  @Public()
+  @Post('apple')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Authenticate with Apple' })
+  @ApiResponse({ status: 200, description: 'Apple authentication successful' })
+  @ApiResponse({ status: 401, description: 'Invalid Apple token' })
+  @ApiResponse({ status: 400, description: 'Role required for new users' })
+  async appleAuth(@Body() appleAuthDto: AppleAuthDto) {
+    return this.authService.appleAuth(appleAuthDto);
   }
 
   @Public()

@@ -38,8 +38,8 @@ export class User {
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email: string;
 
-  @Prop({ required: true, select: false })
-  password: string;
+  @Prop({ select: false })
+  password?: string;
 
   @Prop({ required: true, trim: true })
   fullName: string;
@@ -108,6 +108,13 @@ export class User {
 
   @Prop()
   passwordResetExpires?: Date;
+
+  // Social login IDs
+  @Prop({ sparse: true })
+  googleId?: string;
+
+  @Prop({ sparse: true })
+  appleId?: string;
 
   @Prop()
   lastLoginAt?: Date;
