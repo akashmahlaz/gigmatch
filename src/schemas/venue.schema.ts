@@ -84,22 +84,22 @@ export class Venue {
   @Prop(
     raw({
       streetAddress: { type: String },
-      city: { type: String, required: true },
+      city: { type: String },
       state: { type: String },
       postalCode: { type: String },
-      country: { type: String, required: true },
+      country: { type: String },
       coordinates: {
         type: [Number],
         // Index declared below with VenueSchema.index()
       },
     }),
   )
-  location: {
+  location?: {
     streetAddress?: string;
-    city: string;
+    city?: string;
     state?: string;
     postalCode?: string;
-    country: string;
+    country?: string;
     coordinates?: number[];
   };
 

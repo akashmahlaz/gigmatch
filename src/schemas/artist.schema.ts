@@ -101,8 +101,8 @@ export class Artist {
   // Location
   @Prop(
     raw({
-      city: { type: String, required: true },
-      country: { type: String, required: true },
+      city: { type: String },
+      country: { type: String },
       coordinates: {
         type: [Number],
         // Index declared below with ArtistSchema.index()
@@ -111,8 +111,8 @@ export class Artist {
     }),
   )
   location?: {
-    city: string;
-    country: string;
+    city?: string;
+    country?: string;
     coordinates?: number[];
     travelRadius: number;
   };

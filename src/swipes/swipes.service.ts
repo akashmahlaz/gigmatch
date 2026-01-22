@@ -276,15 +276,21 @@ export class SwipesService {
    * Shows available gigs based on preferences, location, and availability
    */
   async getArtistDiscoveryFeed(
-    artistId: string,
+    userId: string,
     query: DiscoverQueryDto,
   ): Promise<{ gigs: any[]; total: number; page: number }> {
     const startTime = Date.now();
 
     // Get artist profile for preferences
-    const artist = await this.artistModel.findById(artistId);
+    // Try both 'user' field (old schema) and 'userId' field (new schema)
+    let artist = await this.artistModel.findOne({ 
+      $or: [{ user: userId }, { userId: userId }] 
+    });
+    
+    // If artist profile doesn't exist, return empty results (user needs to complete setup)
     if (!artist) {
-      throw new NotFoundException('Artist profile not found');
+      this.logger.warn(`Artist profile not found for user ${userId}, returning empty discovery`);
+      return { gigs: [], total: 0, page: query.page ?? 1 };
     }
 
     // Build match query
@@ -300,7 +306,7 @@ export class SwipesService {
       matchQuery.genres = { $in: artist.genres };
     }
 
-    // Location-based filtering
+    // Location-based filtering (only if coordinates are provided)
     if (
       query.latitude != null &&
       query.longitude != null &&
@@ -315,9 +321,11 @@ export class SwipesService {
           $maxDistance: query.radiusMiles * 1609.34, // Convert miles to meters
         },
       };
-    } else if (artist.location?.coordinates) {
-      // Use artist's location with default radius
-      const radiusMiles = query.radiusMiles ?? artist.travelRadiusMiles ?? 50;
+    } else if (artist.location?.coordinates && artist.location.coordinates.length === 2 && 
+               (artist.location.coordinates[0] !== 0 || artist.location.coordinates[1] !== 0)) {
+      // Use artist's location with default radius (only if valid coordinates exist)
+      // Handle both old schema (travelRadius) and new schema (travelRadiusMiles)
+      const radiusMiles = query.radiusMiles ?? (artist.location as any)?.travelRadiusMiles ?? (artist.location as any)?.travelRadius ?? 50;
       matchQuery.location = {
         $near: {
           $geometry: {
@@ -328,6 +336,7 @@ export class SwipesService {
         },
       };
     }
+    // If no location, skip location filtering - show all gigs
 
     // Budget filtering
     if (query.minBudget != null || query.maxBudget != null) {
@@ -354,7 +363,7 @@ export class SwipesService {
     }
 
     // Exclude already swiped gigs
-    const swipedGigIds = await this.getSwipedGigIds(artistId);
+    const swipedGigIds = await this.getSwipedGigIds(userId);
     if (swipedGigIds.length > 0) {
       matchQuery._id = { $nin: swipedGigIds };
     }
@@ -384,7 +393,7 @@ export class SwipesService {
     scoredGigs.sort((a, b) => b.recommendationScore - a.recommendationScore);
 
     this.logger.log(
-      `Artist discovery feed: artist=${artistId}, count=${gigs.length}, total=${total}, time=${Date.now() - startTime}ms`,
+      `Artist discovery feed: userId=${userId}, count=${gigs.length}, total=${total}, time=${Date.now() - startTime}ms`,
     );
 
     return {
@@ -399,15 +408,21 @@ export class SwipesService {
    * Shows available artists based on preferences and location
    */
   async getVenueDiscoveryFeed(
-    venueId: string,
+    userId: string,
     query: DiscoverQueryDto,
   ): Promise<{ artists: any[]; total: number; page: number }> {
     const startTime = Date.now();
 
     // Get venue profile for preferences
-    const venue = await this.venueModel.findById(venueId);
+    // Try both 'user' field (old schema) and 'userId' field (new schema)
+    let venue = await this.venueModel.findOne({ 
+      $or: [{ user: userId }, { userId: userId }] 
+    });
+    
+    // If venue profile doesn't exist, return empty results (user needs to complete setup)
     if (!venue) {
-      throw new NotFoundException('Venue profile not found');
+      this.logger.warn(`Venue profile not found for user ${userId}, returning empty discovery`);
+      return { artists: [], total: 0, page: query.page ?? 1 };
     }
 
     // Build match query
@@ -424,7 +439,7 @@ export class SwipesService {
       matchQuery.genres = { $in: venue.preferredGenres };
     }
 
-    // Location-based filtering
+    // Location-based filtering (only if coordinates are provided)
     if (
       query.latitude != null &&
       query.longitude != null &&
@@ -439,7 +454,9 @@ export class SwipesService {
           $maxDistance: query.radiusMiles * 1609.34,
         },
       };
-    } else if (venue.location?.coordinates) {
+    } else if (venue.location?.coordinates && venue.location.coordinates.length === 2 &&
+               (venue.location.coordinates[0] !== 0 || venue.location.coordinates[1] !== 0)) {
+      // Only use venue location if valid coordinates exist
       const radiusMiles = query.radiusMiles ?? 50;
       matchQuery['location.coordinates'] = {
         $near: {
@@ -451,6 +468,7 @@ export class SwipesService {
         },
       };
     }
+    // If no location, skip location filtering - show all artists
 
     // Budget filtering (artist's min price within venue's budget)
     if (venue.budgetMax && venue.budgetMax > 0) {
@@ -458,7 +476,7 @@ export class SwipesService {
     }
 
     // Exclude already swiped artists
-    const swipedArtistIds = await this.getSwipedProfileIds(venueId);
+    const swipedArtistIds = await this.getSwipedProfileIds(userId);
     if (swipedArtistIds.length > 0) {
       matchQuery._id = { $nin: swipedArtistIds };
     }
@@ -491,7 +509,7 @@ export class SwipesService {
     scoredArtists.sort((a, b) => b.recommendationScore - a.recommendationScore);
 
     this.logger.log(
-      `Venue discovery feed: venue=${venueId}, count=${artists.length}, total=${total}, time=${Date.now() - startTime}ms`,
+      `Venue discovery feed: userId=${userId}, count=${artists.length}, total=${total}, time=${Date.now() - startTime}ms`,
     );
 
     return {
