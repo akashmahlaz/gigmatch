@@ -8,6 +8,7 @@ import { Artist, ArtistSchema } from '../schemas/artist.schema';
 import { Venue, VenueSchema } from '../schemas/venue.schema';
 import { User, UserSchema } from '../schemas/user.schema';
 import { Subscription, SubscriptionSchema } from '../schemas/subscription.schema';
+import { Gig, GigSchema } from '../schemas/gig.schema';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { Subscription, SubscriptionSchema } from '../schemas/subscription.schema
       { name: Venue.name, schema: VenueSchema },
       { name: User.name, schema: UserSchema },
       { name: Subscription.name, schema: SubscriptionSchema },
+      { name: Gig.name, schema: GigSchema },
     ]),
   ],
   controllers: [SwipesController],
