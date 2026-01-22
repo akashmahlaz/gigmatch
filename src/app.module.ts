@@ -72,11 +72,6 @@ import { EmailModule } from './email/email.module';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('mongodb.uri'),
-        connectionFactory: (connection) => {
-          // Enable geospatial indexing for location-based queries
-          connection.plugin(require('mongoose-geojson-schema'));
-          return connection;
-        },
       }),
       inject: [ConfigService],
     }),

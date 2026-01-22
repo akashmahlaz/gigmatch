@@ -41,6 +41,7 @@
     "google-auth-library": "^10.5.0",
     "jwks-rsa": "^3.2.1",
     "mongoose": "^9.1.1",
+    "mongoose-geojson-schema": "^3.1.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
