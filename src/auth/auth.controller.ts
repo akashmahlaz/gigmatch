@@ -128,11 +128,20 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current authenticated user' })
   @ApiResponse({ status: 200, description: 'User retrieved' })
   async getMe(@CurrentUser() user: UserPayload) {
+    // Get full user with profilePhotoUrl from database
+    const fullData = await this.authService.getProfile(user._id.toString());
+    const profile = fullData?.profile;
+    
+    // Get photo from profile (artist.profilePhoto or venue.profilePhoto)
+    const profilePhotoUrl = profile?.profilePhoto || fullData?.user?.profilePhotoUrl;
+    
     return {
       id: user._id.toString(),
       email: user.email,
       fullName: user.fullName,
       role: user.role,
+      profilePhotoUrl,
+      isProfileComplete: profile?.hasCompletedSetup ?? false,
     };
   }
 

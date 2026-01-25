@@ -592,6 +592,7 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         phone: user.phone,
+        profilePhotoUrl: user.profilePhotoUrl,
         isEmailVerified: user.isEmailVerified,
         lastLoginAt: user.lastLoginAt,
         createdAt: user.createdAt,
@@ -646,14 +647,30 @@ export class AuthService {
         throw new UnauthorizedException('Invalid Google token');
       }
 
-      const { email, name, sub: googleId } = payload;
+      const { email, name, sub: googleId, picture } = payload;
       const fullName = name || email.split('@')[0];
 
       // Check if user already exists
       let user = await this.userModel.findOne({ email }).exec();
 
       if (user) {
-        // Existing user - just login
+        // Existing user - update photo if available and login
+        if (picture && !user.profilePhotoUrl) {
+          user.profilePhotoUrl = picture;
+          await user.save();
+          // Also update profile photo
+          if (user.role === 'artist' && user.artistProfile) {
+            await this.artistModel.updateOne(
+              { _id: user.artistProfile },
+              { $set: { profilePhoto: picture } },
+            );
+          } else if (user.role === 'venue' && user.venueProfile) {
+            await this.venueModel.updateOne(
+              { _id: user.venueProfile },
+              { $set: { profilePhoto: picture } },
+            );
+          }
+        }
         return this.loginSocialUser(user);
       }
 
@@ -664,13 +681,14 @@ export class AuthService {
         );
       }
 
-      // Create new user
+      // Create new user with photo
       const newUser = await this.createSocialUser({
         email,
         fullName,
         role,
         googleId,
         provider: 'google',
+        photoUrl: picture,
       });
 
       return this.loginSocialUser(newUser);
@@ -768,8 +786,9 @@ export class AuthService {
     googleId?: string;
     appleId?: string;
     provider: 'google' | 'apple';
+    photoUrl?: string;
   }): Promise<UserDocument> {
-    const { email, fullName, role, googleId, appleId } = data;
+    const { email, fullName, role, googleId, appleId, photoUrl } = data;
 
     // Create user without password (social login)
     const user = await this.userModel.create({
@@ -778,6 +797,7 @@ export class AuthService {
       role,
       googleId,
       appleId,
+      profilePhotoUrl: photoUrl,
       isActive: true,
       isEmailVerified: true, // Social login emails are verified
     });
@@ -789,6 +809,7 @@ export class AuthService {
       const artist = await this.artistModel.create({
         user: user._id,
         displayName: fullName,
+        profilePhoto: photoUrl,
         location: {
           city: 'Not Set',
           country: 'Not Set',
@@ -823,6 +844,7 @@ export class AuthService {
         user: user._id,
         venueName: fullName,
         venueType: 'bar',
+        profilePhoto: photoUrl,
         location: {
           city: 'Not Set',
           country: 'Not Set',

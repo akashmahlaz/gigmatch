@@ -6,20 +6,31 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Artist, ArtistDocument } from '../schemas/artist.schema';
 import { User, UserDocument } from '../schemas/user.schema';
+import { Gig, GigDocument } from '../schemas/gig.schema';
 import {
   CreateArtistDto,
   UpdateArtistDto,
   SearchArtistsDto,
 } from './dto/artist.dto';
+import {
+  UpdateAvailabilityDto,
+  AddAvailabilityDto,
+  RemoveAvailabilityDto,
+  GetAvailabilityQueryDto,
+  AvailabilityType,
+  CalendarEventDto,
+  CalendarResponseDto,
+} from './dto/calendar.dto';
 
 @Injectable()
 export class ArtistsService {
   constructor(
     @InjectModel(Artist.name) private artistModel: Model<ArtistDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Gig.name) private gigModel: Model<GigDocument>,
   ) {}
 
   /**
@@ -441,5 +452,237 @@ export class ArtistsService {
       .exec();
 
     return updated!;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 📅 CALENDAR / AVAILABILITY METHODS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get full calendar with availability slots and booked gigs
+   */
+  async getCalendar(
+    userId: string,
+    query: GetAvailabilityQueryDto,
+  ): Promise<CalendarResponseDto> {
+    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    // Default to current month if no dates provided
+    const now = new Date();
+    const startDate = query.startDate
+      ? new Date(query.startDate)
+      : new Date(now.getFullYear(), now.getMonth(), 1);
+    const endDate = query.endDate
+      ? new Date(query.endDate)
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    const events: CalendarEventDto[] = [];
+
+    // Add availability slots
+    if (artist.availability && artist.availability.length > 0) {
+      for (const slot of artist.availability) {
+        const slotDate = new Date(slot.date);
+        if (slotDate >= startDate && slotDate <= endDate) {
+          events.push({
+            id: `avail-${slotDate.toISOString()}`,
+            date: slotDate.toISOString().split('T')[0],
+            startTime: slot.startTime || '19:00',
+            endTime: slot.endTime || '23:00',
+            eventType: slot.isAvailable ? 'availability' : 'blocked',
+            title: slot.isAvailable ? 'Available' : 'Blocked',
+            notes: (slot as any).notes,
+          });
+        }
+      }
+    }
+
+    // Get booked gigs for this artist in date range
+    const bookedGigs = await this.gigModel
+      .find({
+        bookedArtists: artist._id,
+        date: { $gte: startDate, $lte: endDate },
+        status: { $in: ['open', 'in_progress', 'filled'] },
+      })
+      .populate('venue', 'venueName')
+      .lean()
+      .exec();
+
+    for (const gig of bookedGigs) {
+      events.push({
+        id: gig._id.toString(),
+        date: new Date(gig.date).toISOString().split('T')[0],
+        startTime: gig.startTime || '19:00',
+        endTime: gig.endTime || '23:00',
+        eventType: 'gig',
+        title: gig.title,
+        venueName: (gig.venue as any)?.venueName,
+        venueId: (gig.venue as any)?._id?.toString(),
+        gigId: gig._id.toString(),
+        payment: gig.budget,
+      });
+    }
+
+    // Sort events by date
+    events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Count stats
+    const availableCount = events.filter((e) => e.eventType === 'availability').length;
+    const bookedCount = events.filter((e) => e.eventType === 'gig').length;
+    const blockedCount = events.filter((e) => e.eventType === 'blocked').length;
+
+    return {
+      events,
+      availableCount,
+      bookedCount,
+      blockedCount,
+    };
+  }
+
+  /**
+   * Get only availability slots (no gigs)
+   */
+  async getAvailability(
+    userId: string,
+    query: GetAvailabilityQueryDto,
+  ): Promise<{ slots: any[] }> {
+    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    if (!artist.availability || artist.availability.length === 0) {
+      return { slots: [] };
+    }
+
+    let slots = artist.availability.map((slot) => ({
+      date: new Date(slot.date).toISOString().split('T')[0],
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      isAvailable: slot.isAvailable,
+    }));
+
+    // Filter by date range if provided
+    if (query.startDate || query.endDate) {
+      const startDate = query.startDate ? new Date(query.startDate) : new Date(0);
+      const endDate = query.endDate ? new Date(query.endDate) : new Date(9999, 11, 31);
+
+      slots = slots.filter((slot) => {
+        const slotDate = new Date(slot.date);
+        return slotDate >= startDate && slotDate <= endDate;
+      });
+    }
+
+    return { slots };
+  }
+
+  /**
+   * Replace all availability slots
+   */
+  async updateAvailability(
+    userId: string,
+    dto: UpdateAvailabilityDto,
+  ): Promise<{ slots: any[]; message: string }> {
+    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    // Convert DTO slots to schema format
+    const availability = dto.slots.map((slot) => ({
+      date: new Date(slot.date),
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      isAvailable: slot.type !== AvailabilityType.BLOCKED,
+    }));
+
+    await this.artistModel
+      .findByIdAndUpdate(artist._id, { availability })
+      .exec();
+
+    return {
+      slots: availability,
+      message: `Updated ${availability.length} availability slots`,
+    };
+  }
+
+  /**
+   * Add a single availability slot
+   */
+  async addAvailabilitySlot(
+    userId: string,
+    dto: AddAvailabilityDto,
+  ): Promise<{ slot: any; message: string }> {
+    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    const newSlot = {
+      date: new Date(dto.date),
+      startTime: dto.startTime,
+      endTime: dto.endTime,
+      isAvailable: dto.type !== AvailabilityType.BLOCKED,
+      ...(dto.isOvernight && { isOvernight: dto.isOvernight }),
+      ...(dto.timezone && { timezone: dto.timezone }),
+      ...(dto.notes && { notes: dto.notes }),
+    };
+
+    // Check if slot already exists for this date
+    const existingIndex = artist.availability?.findIndex(
+      (slot) =>
+        new Date(slot.date).toDateString() === newSlot.date.toDateString(),
+    );
+
+    if (existingIndex !== undefined && existingIndex >= 0) {
+      // Update existing slot
+      artist.availability[existingIndex] = newSlot;
+    } else {
+      // Add new slot
+      if (!artist.availability) {
+        artist.availability = [];
+      }
+      artist.availability.push(newSlot);
+    }
+
+    await artist.save();
+
+    return {
+      slot: newSlot,
+      message: 'Availability slot added',
+    };
+  }
+
+  /**
+   * Remove availability for a specific date
+   */
+  async removeAvailability(
+    userId: string,
+    dto: RemoveAvailabilityDto,
+  ): Promise<{ message: string }> {
+    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    const targetDate = new Date(dto.date).toDateString();
+
+    if (!artist.availability || artist.availability.length === 0) {
+      return { message: 'No availability to remove' };
+    }
+
+    const originalLength = artist.availability.length;
+    artist.availability = artist.availability.filter(
+      (slot) => new Date(slot.date).toDateString() !== targetDate,
+    );
+
+    if (artist.availability.length < originalLength) {
+      await artist.save();
+      return { message: 'Availability removed' };
+    }
+
+    return { message: 'No availability found for this date' };
   }
 }

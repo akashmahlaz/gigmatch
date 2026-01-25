@@ -56,6 +56,9 @@ export class Venue {
   coverPhoto?: string;
 
   @Prop()
+  profilePhoto?: string;
+
+  @Prop()
   logo?: string;
 
   @Prop({ type: [String], default: [] })

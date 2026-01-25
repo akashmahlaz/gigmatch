@@ -116,6 +116,10 @@ export class User {
   @Prop({ sparse: true })
   appleId?: string;
 
+  // Profile photo (from social login or uploaded)
+  @Prop()
+  profilePhotoUrl?: string;
+
   @Prop()
   lastLoginAt?: Date;
 

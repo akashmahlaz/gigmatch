@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -18,6 +19,12 @@ import {
 } from '@nestjs/swagger';
 import { ArtistsService } from './artists.service';
 import { UpdateArtistDto, SearchArtistsDto } from './dto/artist.dto';
+import {
+  UpdateAvailabilityDto,
+  AddAvailabilityDto,
+  RemoveAvailabilityDto,
+  GetAvailabilityQueryDto,
+} from './dto/calendar.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -85,6 +92,75 @@ export class ArtistsController {
     @Query('hours') hours?: number,
   ) {
     return this.artistsService.boostProfile(user._id.toString(), hours);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 📅 CALENDAR / AVAILABILITY ENDPOINTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('artist')
+  @Get('me/calendar')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get artist calendar with availability and booked gigs' })
+  @ApiResponse({ status: 200, description: 'Calendar data retrieved' })
+  async getCalendar(
+    @CurrentUser() user: UserPayload,
+    @Query() query: GetAvailabilityQueryDto,
+  ) {
+    return this.artistsService.getCalendar(user._id.toString(), query);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('artist')
+  @Get('me/availability')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get artist availability slots' })
+  @ApiResponse({ status: 200, description: 'Availability retrieved' })
+  async getAvailability(
+    @CurrentUser() user: UserPayload,
+    @Query() query: GetAvailabilityQueryDto,
+  ) {
+    return this.artistsService.getAvailability(user._id.toString(), query);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('artist')
+  @Put('me/availability')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Replace all availability slots' })
+  @ApiResponse({ status: 200, description: 'Availability updated' })
+  async updateAvailability(
+    @CurrentUser() user: UserPayload,
+    @Body() dto: UpdateAvailabilityDto,
+  ) {
+    return this.artistsService.updateAvailability(user._id.toString(), dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('artist')
+  @Post('me/availability')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Add a single availability slot' })
+  @ApiResponse({ status: 201, description: 'Availability slot added' })
+  async addAvailabilitySlot(
+    @CurrentUser() user: UserPayload,
+    @Body() dto: AddAvailabilityDto,
+  ) {
+    return this.artistsService.addAvailabilitySlot(user._id.toString(), dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('artist')
+  @Delete('me/availability')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove availability for a specific date' })
+  @ApiResponse({ status: 200, description: 'Availability removed' })
+  async removeAvailability(
+    @CurrentUser() user: UserPayload,
+    @Body() dto: RemoveAvailabilityDto,
+  ) {
+    return this.artistsService.removeAvailability(user._id.toString(), dto);
   }
 
   @Public()

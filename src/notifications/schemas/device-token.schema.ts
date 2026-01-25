@@ -58,4 +58,3 @@ export const DeviceTokenSchema = SchemaFactory.createForClass(DeviceToken);
 
 // Index for efficient lookups
 DeviceTokenSchema.index({ userId: 1, isActive: 1 });
-DeviceTokenSchema.index({ token: 1 }, { unique: true });
