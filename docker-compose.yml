@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "3000:10000" # Map host 3000 to container 10000
+    environment:
+      - NODE_ENV=production
+      - PORT=10000 # Match Dockerfile HEALTHCHECK
+      - MONGODB_URI=mongodb://mongo:27017/gigmatch
+      - JWT_SECRET=docker-secret-key-change-in-prod
+      - JWT_REFRESH_SECRET=docker-refresh-secret-change-in-prod
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+    depends_on:
+      - mongo
+    networks:
+      - gigmatch-network
+
+  mongo:
+    image: mongo:6.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - gigmatch-network
+
+networks:
+  gigmatch-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
