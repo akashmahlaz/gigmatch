@@ -247,6 +247,13 @@ export class UpdateArtistDto extends PartialType(CreateArtistDto) {
   @IsString()
   experienceLevel?: string;
 
+  @ApiPropertyOptional({ example: 5, description: 'Years of experience (Flutter sends as yearsOfExperience)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  yearsOfExperience?: number;
+
   @ApiPropertyOptional({ example: { min: 100, max: 500 } })
   @IsOptional()
   priceRange?: { min?: number; max?: number };
@@ -268,6 +275,17 @@ export class UpdateArtistDto extends PartialType(CreateArtistDto) {
   @IsNumber()
   @Min(1)
   bandSize?: number;
+
+  @ApiPropertyOptional({ type: [String], description: 'Gallery URLs (Flutter sends as galleryUrls)' })
+  @IsOptional()
+  @IsArray()
+  @IsUrl({}, { each: true })
+  galleryUrls?: string[];
+
+  @ApiPropertyOptional({ description: 'Cover photo URL' })
+  @IsOptional()
+  @IsUrl()
+  coverPhoto?: string;
 }
 
 export class SearchArtistsDto {

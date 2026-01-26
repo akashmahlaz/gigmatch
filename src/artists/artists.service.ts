@@ -97,6 +97,10 @@ export class ArtistsService {
 
   /**
    * Update artist profile
+   * 
+   * IMPORTANT: This method normalizes field names from Flutter DTO to MongoDB schema.
+   * Flutter uses: galleryUrls, equipment, yearsOfExperience, profilePhoto
+   * MongoDB uses: photos, equipmentProvided, yearsExperience, profilePhotoUrl
    */
   async update(
     userId: string,
@@ -107,21 +111,129 @@ export class ArtistsService {
       throw new NotFoundException('Artist profile not found');
     }
 
+    // Normalize field names from Flutter DTO to MongoDB schema
+    const normalizedUpdate = this.normalizeArtistUpdate(updateArtistDto);
+
     // Calculate profile completion percentage
     const completionPercent = this.calculateProfileCompletion({
       ...artist.toObject(),
-      ...updateArtistDto,
+      ...normalizedUpdate,
     } as Partial<Artist>);
+
+    normalizedUpdate['profileCompleteness'] = completionPercent;
 
     const updated = await this.artistModel
       .findByIdAndUpdate(
         artist._id,
-        { ...updateArtistDto, profileCompletionPercent: completionPercent },
+        normalizedUpdate,
         { new: true },
       )
       .exec();
 
     return updated!;
+  }
+
+  /**
+   * Normalize Flutter DTO field names to MongoDB schema field names
+   */
+  private normalizeArtistUpdate(dto: UpdateArtistDto): Record<string, any> {
+    const normalized: Record<string, any> = {};
+
+    // Direct mappings (same field name)
+    const directFields = [
+      'displayName', 'stageName', 'bio', 'genres', 'influences',
+      'phone', 'showPhoneOnProfile', 'email', 'socialLinks',
+      'minPrice', 'maxPrice', 'currency', 'availability',
+      'artistType', 'experienceLevel', 'isProfileVisible', 
+      'hasCompletedSetup', 'bandSize'
+    ];
+
+    for (const field of directFields) {
+      if (dto[field] !== undefined) {
+        normalized[field] = dto[field];
+      }
+    }
+
+    // Field name transformations
+    
+    // profilePhoto -> profilePhotoUrl
+    if (dto.profilePhoto !== undefined) {
+      normalized['profilePhotoUrl'] = dto.profilePhoto;
+    }
+
+    // photoGallery/galleryUrls -> photos (array of Photo objects)
+    const galleryUrls = dto.photoGallery || (dto as any).galleryUrls;
+    if (galleryUrls !== undefined) {
+      normalized['photos'] = galleryUrls.map((url: string, index: number) => ({
+        url,
+        order: index,
+        uploadedAt: new Date(),
+        isProfilePhoto: index === 0,
+      }));
+    }
+
+    // equipment -> equipmentProvided
+    if (dto.equipment !== undefined) {
+      normalized['equipmentProvided'] = dto.equipment;
+    }
+
+    // maxTravelDistance -> travelRadiusMiles
+    if (dto.maxTravelDistance !== undefined) {
+      normalized['travelRadiusMiles'] = dto.maxTravelDistance;
+    }
+
+    // Handle priceRange object (min/max)
+    if (dto.priceRange) {
+      if (dto.priceRange.min !== undefined) {
+        normalized['minPrice'] = dto.priceRange.min;
+      }
+      if (dto.priceRange.max !== undefined) {
+        normalized['maxPrice'] = dto.priceRange.max;
+      }
+    }
+
+    // yearsOfExperience -> yearsExperience (handle both)
+    if ((dto as any).yearsOfExperience !== undefined) {
+      normalized['yearsExperience'] = (dto as any).yearsOfExperience;
+    }
+
+    // Location transformation
+    if (dto.location) {
+      normalized['location'] = {
+        type: 'Point',
+        coordinates: dto.location.coordinates || [0, 0],
+        city: dto.location.city,
+        country: dto.location.country,
+        travelRadiusMiles: dto.location.travelRadius || dto.maxTravelDistance || 50,
+      };
+    }
+
+    // Audio samples - ensure proper structure with duration
+    if (dto.audioSamples !== undefined) {
+      normalized['audioSamples'] = dto.audioSamples.map((sample) => ({
+        title: sample.title || 'Untitled Track',
+        url: sample.url,
+        durationSeconds: sample.duration || 0,
+        uploadedAt: new Date(),
+        playCount: 0,
+        isFeatured: false,
+      }));
+    }
+
+    // Video samples - ensure proper structure
+    if (dto.videoSamples !== undefined) {
+      normalized['videoSamples'] = dto.videoSamples.map((sample) => ({
+        title: sample.title || 'Untitled Video',
+        url: sample.url,
+        thumbnailUrl: sample.thumbnailUrl,
+        durationSeconds: 0,
+        uploadedAt: new Date(),
+        viewCount: 0,
+        isFeatured: false,
+      }));
+    }
+
+    return normalized;
   }
 
   /**

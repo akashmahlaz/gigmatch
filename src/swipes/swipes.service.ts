@@ -102,9 +102,8 @@ export class SwipesService {
 
     // Check for existing swipe (prevent duplicates)
     const existingSwipe = await this.swipeModel.findOne({
-      userId: new Types.ObjectId(userId),
+      swiperId: new Types.ObjectId(userId),
       targetId: new Types.ObjectId(dto.targetId),
-      targetType: role === UserRole.ARTIST ? 'venue' : 'artist',
     });
 
     if (existingSwipe) {
@@ -693,16 +692,16 @@ export class SwipesService {
     page = 1,
     limit = 20,
   ): Promise<{ profiles: any[]; total: number }> {
-    const targetType = role === UserRole.ARTIST ? 'venue' : 'artist';
+    const targetRole = role === UserRole.ARTIST ? UserRole.VENUE : UserRole.ARTIST;
 
     const skip = (page - 1) * limit;
 
     const [profiles, total] = await Promise.all([
       this.swipeModel
         .find({
-          userId: new Types.ObjectId(userId),
-          targetType,
-          swipeType: SwipeDirection.RIGHT,
+          swiperId: new Types.ObjectId(userId),
+          targetRole,
+          direction: SwipeDirection.RIGHT,
           result: { $in: [SwipeResult.LIKED, SwipeResult.MATCH] },
         })
         .sort({ createdAt: -1 })
@@ -710,9 +709,9 @@ export class SwipesService {
         .limit(limit)
         .lean(),
       this.swipeModel.countDocuments({
-        userId: new Types.ObjectId(userId),
-        targetType,
-        swipeType: SwipeDirection.RIGHT,
+        swiperId: new Types.ObjectId(userId),
+        targetRole,
+        direction: SwipeDirection.RIGHT,
         result: { $in: [SwipeResult.LIKED, SwipeResult.MATCH] },
       }),
     ]);
@@ -786,7 +785,7 @@ export class SwipesService {
       this.swipeModel.aggregate([
         {
           $match: {
-            userId: new Types.ObjectId(userId),
+            swiperId: new Types.ObjectId(userId),
             createdAt: { $gte: today },
           },
         },
@@ -796,12 +795,12 @@ export class SwipesService {
             totalSwipes: { $sum: 1 },
             rightSwipes: {
               $sum: {
-                $cond: [{ $eq: ['$swipeType', SwipeDirection.RIGHT] }, 1, 0],
+                $cond: [{ $eq: ['$direction', SwipeDirection.RIGHT] }, 1, 0],
               },
             },
             leftSwipes: {
               $sum: {
-                $cond: [{ $eq: ['$swipeType', SwipeDirection.LEFT] }, 1, 0],
+                $cond: [{ $eq: ['$direction', SwipeDirection.LEFT] }, 1, 0],
               },
             },
             matches: {
@@ -813,7 +812,7 @@ export class SwipesService {
       // All-time stats
       this.swipeModel.aggregate([
         {
-          $match: { userId: new Types.ObjectId(userId) },
+          $match: { swiperId: new Types.ObjectId(userId) },
         },
         {
           $group: {
@@ -821,12 +820,12 @@ export class SwipesService {
             totalSwipes: { $sum: 1 },
             rightSwipes: {
               $sum: {
-                $cond: [{ $eq: ['$swipeType', SwipeDirection.RIGHT] }, 1, 0],
+                $cond: [{ $eq: ['$direction', SwipeDirection.RIGHT] }, 1, 0],
               },
             },
             leftSwipes: {
               $sum: {
-                $cond: [{ $eq: ['$swipeType', SwipeDirection.LEFT] }, 1, 0],
+                $cond: [{ $eq: ['$direction', SwipeDirection.LEFT] }, 1, 0],
               },
             },
             matches: {
@@ -937,7 +936,7 @@ export class SwipesService {
     today.setHours(0, 0, 0, 0);
 
     const swipeCount = await this.swipeModel.countDocuments({
-      userId: new Types.ObjectId(userId),
+      swiperId: new Types.ObjectId(userId),
       createdAt: { $gte: today },
     });
 
@@ -957,7 +956,7 @@ export class SwipesService {
     today.setHours(0, 0, 0, 0);
 
     const undoCount = await this.swipeModel.countDocuments({
-      userId: new Types.ObjectId(userId),
+      swiperId: new Types.ObjectId(userId),
       createdAt: { $gte: today },
       metadata: { $exists: true },
     });
@@ -1021,13 +1020,13 @@ export class SwipesService {
   private async getSwipedGigIds(userId: string): Promise<Types.ObjectId[]> {
     const swipes = await this.swipeModel
       .find({
-        userId: new Types.ObjectId(userId),
-        targetType: 'gig',
+        swiperId: new Types.ObjectId(userId),
+        relatedGigId: { $exists: true, $ne: null },
       })
-      .select('targetId')
+      .select('relatedGigId')
       .lean();
 
-    return swipes.map((s) => s.targetId as Types.ObjectId);
+    return swipes.map((s) => s.relatedGigId as Types.ObjectId).filter(id => id != null);
   }
 
   /**
@@ -1036,8 +1035,11 @@ export class SwipesService {
   private async getSwipedProfileIds(userId: string): Promise<Types.ObjectId[]> {
     const swipes = await this.swipeModel
       .find({
-        userId: new Types.ObjectId(userId),
-        targetType: { $in: ['artist', 'venue'] },
+        swiperId: new Types.ObjectId(userId),
+        $or: [
+          { relatedGigId: { $exists: false } },
+          { relatedGigId: null }
+        ]
       })
       .select('targetId')
       .lean();
