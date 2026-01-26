@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Artist, ArtistDocument } from '../schemas/artist.schema';
+import { Artist, ArtistDocument } from './schemas/artist.schema';
 import { User, UserDocument } from '../schemas/user.schema';
 import { Gig, GigDocument } from '../schemas/gig.schema';
 import {
@@ -49,7 +49,7 @@ export class ArtistsService {
 
       // Create basic artist profile
       artist = await this.artistModel.create({
-        user: userId,
+        userId,
         displayName: user.fullName || 'Artist',
         isProfileVisible: false,
         hasCompletedSetup: false,
@@ -402,8 +402,8 @@ export class ArtistsService {
     if (artist.displayName) score++;
     if (artist.bio && artist.bio.length > 20) score++;
     if (artist.genres && artist.genres.length > 0) score++;
-    if (artist.profilePhoto) score++;
-    if (artist.photoGallery && artist.photoGallery.length > 0) score++;
+    if (artist.profilePhotoUrl) score++;
+    if (artist.photos && artist.photos.length > 0) score++;
     if (artist.audioSamples && artist.audioSamples.length > 0) score++;
     if (artist.location?.city) score++;
     if (artist.minPrice || artist.maxPrice) score++;
@@ -489,11 +489,11 @@ export class ArtistsService {
           events.push({
             id: `avail-${slotDate.toISOString()}`,
             date: slotDate.toISOString().split('T')[0],
-            startTime: slot.startTime || '19:00',
-            endTime: slot.endTime || '23:00',
-            eventType: slot.isAvailable ? 'availability' : 'blocked',
-            title: slot.isAvailable ? 'Available' : 'Blocked',
-            notes: (slot as any).notes,
+            startTime: slot.startTime ? slot.startTime.toString() : '19:00',
+            endTime: slot.endTime ? slot.endTime.toString() : '23:00',
+            eventType: slot.status === 'available' ? 'availability' : 'blocked',
+            title: slot.status === 'available' ? 'Available' : 'Blocked',
+            notes: slot.notes,
           });
         }
       }
@@ -561,7 +561,7 @@ export class ArtistsService {
       date: new Date(slot.date).toISOString().split('T')[0],
       startTime: slot.startTime,
       endTime: slot.endTime,
-      isAvailable: slot.isAvailable,
+      status: slot.status,
     }));
 
     // Filter by date range if provided
@@ -622,13 +622,12 @@ export class ArtistsService {
 
     const newSlot = {
       date: new Date(dto.date),
-      startTime: dto.startTime,
-      endTime: dto.endTime,
-      isAvailable: dto.type !== AvailabilityType.BLOCKED,
-      ...(dto.isOvernight && { isOvernight: dto.isOvernight }),
-      ...(dto.timezone && { timezone: dto.timezone }),
+      startTime: dto.startTime ? new Date(dto.startTime) : undefined,
+      endTime: dto.endTime ? new Date(dto.endTime) : undefined,
+      status: dto.type !== AvailabilityType.BLOCKED ? 'available' : 'blocked',
+      isBooked: false,
       ...(dto.notes && { notes: dto.notes }),
-    };
+    } as any;
 
     // Check if slot already exists for this date
     const existingIndex = artist.availability?.findIndex(

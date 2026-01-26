@@ -8,8 +8,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from '../schemas/user.schema';
-import { Artist, ArtistDocument } from '../schemas/artist.schema';
-import { Venue, VenueDocument } from '../schemas/venue.schema';
+import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
+import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import { Match, MatchDocument } from '../schemas/match.schema';
 import { Subscription, SubscriptionDocument } from '../schemas/subscription.schema';
 import { CreateUserDto, UpdateUserDto, QueryUsersDto } from './dto/admin.dto';
@@ -167,15 +167,15 @@ export class AdminService {
     // Create profile if artist or venue
     if (createUserDto.role === 'artist') {
       const artist = await this.artistModel.create({
-        user: user._id,
+        userId: user._id,
         displayName: createUserDto.fullName,
-        location: { city: 'Not Set', country: 'Not Set', travelRadius: 50 },
+        location: { city: 'Not Set', country: 'Not Set', travelRadiusMiles: 50 },
       });
       user.artistProfile = artist._id;
       await user.save();
     } else if (createUserDto.role === 'venue') {
       const venue = await this.venueModel.create({
-        user: user._id,
+        userId: user._id,
         venueName: createUserDto.fullName,
         venueType: 'bar',
         location: { city: 'Not Set', country: 'Not Set' },
@@ -321,8 +321,8 @@ export class AdminService {
     }
 
     // Delete associated user
-    if (artist.user) {
-      await this.userModel.findByIdAndDelete(artist.user);
+    if (artist.userId) {
+      await this.userModel.findByIdAndDelete(artist.userId);
     }
 
     await artist.deleteOne();
@@ -391,8 +391,8 @@ export class AdminService {
     }
 
     // Delete associated user
-    if (venue.user) {
-      await this.userModel.findByIdAndDelete(venue.user);
+    if (venue.userId) {
+      await this.userModel.findByIdAndDelete(venue.userId);
     }
 
     await venue.deleteOne();

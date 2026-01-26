@@ -8,7 +8,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Review, ReviewDocument } from './review.schema';
-import { Artist, ArtistDocument } from '../schemas/artist.schema';
+import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import { Gig, GigDocument } from '../schemas/gig.schema';
 import { User, UserDocument } from '../schemas/user.schema';

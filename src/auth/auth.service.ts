@@ -15,8 +15,8 @@ import { Model } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { User, UserDocument } from '../schemas/user.schema';
-import { Artist, ArtistDocument } from '../schemas/artist.schema';
-import { Venue, VenueDocument } from '../schemas/venue.schema';
+import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
+import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import {
   Subscription,
   SubscriptionDocument,
@@ -137,7 +137,7 @@ export class AuthService {
         }
 
         const artist = await this.artistModel.create({
-          user: user._id,
+          userId: user._id,
           displayName: fullName,
           location: locationData,
           phone,
@@ -185,7 +185,7 @@ export class AuthService {
         }
 
         const venue = await this.venueModel.create({
-          user: user._id,
+          userId: user._id,
           venueName: fullName,
           venueType: 'bar',
           location: locationData,
@@ -807,13 +807,13 @@ export class AuthService {
     // Create profile based on role
     if (role === 'artist') {
       const artist = await this.artistModel.create({
-        user: user._id,
+        userId: user._id,
         displayName: fullName,
-        profilePhoto: photoUrl,
+        profilePhotoUrl: photoUrl,
         location: {
           city: 'Not Set',
           country: 'Not Set',
-          travelRadius: 50,
+          travelRadiusMiles: 50,
         },
         isProfileVisible: false,
         hasCompletedSetup: false,
@@ -841,10 +841,10 @@ export class AuthService {
       });
     } else if (role === 'venue') {
       const venue = await this.venueModel.create({
-        user: user._id,
+        userId: user._id,
         venueName: fullName,
         venueType: 'bar',
-        profilePhoto: photoUrl,
+        photos: photoUrl ? [{ url: photoUrl, isPrimary: true, order: 0, uploadedAt: new Date(), caption: '' }] : [],
         location: {
           city: 'Not Set',
           country: 'Not Set',

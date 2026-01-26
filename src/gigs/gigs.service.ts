@@ -8,8 +8,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
 import { Gig, GigDocument } from '../schemas/gig.schema';
-import { Venue, VenueDocument } from '../schemas/venue.schema';
-import { Artist, ArtistDocument } from '../schemas/artist.schema';
+import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
+import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { User, UserDocument } from '../schemas/user.schema';
 
 import { CreateGigDto, DiscoverGigsDto } from './dto/gig.dto';
@@ -71,7 +71,7 @@ export class GigsService {
           'Complete venue setup before publishing gigs.',
         );
       }
-      if (!venue.isAcceptingBookings) {
+      if (!venue.isOpenForBookings) {
         throw new ForbiddenException(
           'Enable accepting bookings before publishing gigs.',
         );
@@ -198,8 +198,8 @@ export class GigsService {
       artist.genres && artist.genres.length > 0 ? artist.genres : [];
 
     const fallbackRadiusKm =
-      artist.location?.travelRadius && artist.location.travelRadius > 0
-        ? artist.location.travelRadius
+      artist.location?.travelRadiusMiles && artist.location.travelRadiusMiles > 0
+        ? artist.location.travelRadiusMiles
         : 25;
 
     const artistCoords = artist.location?.coordinates;

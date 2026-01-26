@@ -3,8 +3,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { MatchesController } from './matches.controller';
 import { MatchesService } from './matches.service';
 import { Match, MatchSchema } from '../schemas/match.schema';
-import { Artist, ArtistSchema } from '../schemas/artist.schema';
-import { Venue, VenueSchema } from '../schemas/venue.schema';
+import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
+import { Venue, VenueSchema } from '../venues/schemas/venue.schema';
 
 @Module({
   imports: [

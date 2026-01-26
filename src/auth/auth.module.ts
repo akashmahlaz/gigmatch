@@ -8,8 +8,8 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { User, UserSchema } from '../schemas/user.schema';
-import { Artist, ArtistSchema } from '../schemas/artist.schema';
-import { Venue, VenueSchema } from '../schemas/venue.schema';
+import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
+import { Venue, VenueSchema } from '../venues/schemas/venue.schema';
 import { Subscription, SubscriptionSchema } from '../schemas/subscription.schema';
 
 @Module({

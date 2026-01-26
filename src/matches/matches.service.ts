@@ -6,8 +6,8 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Match, MatchDocument } from '../schemas/match.schema';
-import { Artist, ArtistDocument } from '../schemas/artist.schema';
-import { Venue, VenueDocument } from '../schemas/venue.schema';
+import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
+import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import {
   GetMatchesDto,
   UpdateMatchDto,
@@ -212,7 +212,7 @@ export class MatchesService {
       otherUser = {
         id: match.artistUser?.toString() || '',
         name: artist?.displayName || 'Unknown Artist',
-        profilePhoto: artist?.profilePhoto,
+        profilePhoto: artist?.profilePhotoUrl,
         type: 'artist',
         profileId: otherProfileId?.toString() || '',
       };
@@ -231,7 +231,7 @@ export class MatchesService {
       otherUser = {
         id: match.venueUser?.toString() || '',
         name: venue?.venueName || 'Unknown Venue',
-        profilePhoto: venue?.coverPhoto,
+        profilePhoto: venue?.photos?.[0]?.url,
         type: 'venue',
         profileId: otherProfileId?.toString() || '',
       };

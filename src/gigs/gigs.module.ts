@@ -5,8 +5,8 @@ import { GigsController } from './gigs.controller';
 import { GigsService } from './gigs.service';
 
 import { Gig, GigSchema } from '../schemas/gig.schema';
-import { Venue, VenueSchema } from '../schemas/venue.schema';
-import { Artist, ArtistSchema } from '../schemas/artist.schema';
+import { Venue, VenueSchema } from '../venues/schemas/venue.schema';
+import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
 import { User, UserSchema } from '../schemas/user.schema';
 
 @Module({

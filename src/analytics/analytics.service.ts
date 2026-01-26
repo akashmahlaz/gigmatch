@@ -15,8 +15,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import { User, UserDocument } from '../schemas/user.schema';
-import { Artist, ArtistDocument } from '../schemas/artist.schema';
-import { Venue, VenueDocument } from '../schemas/venue.schema';
+import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
+import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import { Swipe, SwipeDocument } from '../schemas/swipe.schema';
 import { Match, MatchDocument } from '../schemas/match.schema';
 import { Message, MessageDocument } from '../schemas/message.schema';
@@ -250,7 +250,7 @@ export class AnalyticsService {
             : null;
           if (artist) {
             viewerName = artist.displayName || 'Unknown Artist';
-            viewerPhoto = artist.profilePhoto;
+            viewerPhoto = artist.profilePhotoUrl;
           }
         } else if (viewerUserType === 'venue') {
           const venueUser = await this.userModel
@@ -262,7 +262,7 @@ export class AnalyticsService {
             : null;
           if (venue) {
             viewerName = venue.venueName || 'Unknown Venue';
-            viewerPhoto = venue.coverPhoto;
+            viewerPhoto = venue.photos?.[0]?.url;
           }
         }
 

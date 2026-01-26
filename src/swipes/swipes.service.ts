@@ -427,19 +427,23 @@ export class SwipesService {
 
     // Build match query
     const matchQuery: any = {
-      isProfileVisible: { $ne: false }, // Show unless explicitly hidden
-      hasCompletedSetup: { $ne: false }, // Show unless explicitly incomplete
-      // Don't require isVerified - show all artists (verified ones are prioritized in sorting)
+      // During development, show all artists regardless of profile status
+      // In production, uncomment the filters below:
+      // isProfileVisible: { $ne: false }, // Show unless explicitly hidden
+      // hasCompletedSetup: { $ne: false }, // Show unless explicitly incomplete
     };
 
-    // Genre matching
+    // Genre matching - Only filter if user explicitly requests genres
     if (query.genres && query.genres.length > 0) {
       matchQuery.genres = { $in: query.genres };
-    } else if (venue.preferredGenres && venue.preferredGenres.length > 0) {
-      matchQuery.genres = { $in: venue.preferredGenres };
     }
+    // Don't filter by venue.preferredGenres during development
+    // else if (venue.preferredGenres && venue.preferredGenres.length > 0) {
+    //   matchQuery.genres = { $in: venue.preferredGenres };
+    // }
 
-    // Location-based filtering (only if coordinates are provided)
+    // Location-based filtering - DISABLED for development
+    // Only apply if query explicitly requests location filtering
     if (
       query.latitude != null &&
       query.longitude != null &&
@@ -454,32 +458,36 @@ export class SwipesService {
           $maxDistance: query.radiusMiles * 1609.34,
         },
       };
-    } else if (venue.location?.coordinates && venue.location.coordinates.length === 2 &&
-               (venue.location.coordinates[0] !== 0 || venue.location.coordinates[1] !== 0)) {
-      // Only use venue location if valid coordinates exist
-      const radiusMiles = query.radiusMiles ?? 50;
-      matchQuery['location.coordinates'] = {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: venue.location.coordinates,
-          },
-          $maxDistance: radiusMiles * 1609.34,
-        },
-      };
     }
+    // Don't auto-apply venue location filter during development
+    // else if (venue.location?.coordinates && venue.location.coordinates.length === 2 &&
+    //          (venue.location.coordinates[0] !== 0 || venue.location.coordinates[1] !== 0)) {
+    //   const radiusMiles = query.radiusMiles ?? 50;
+    //   matchQuery['location.coordinates'] = {
+    //     $near: {
+    //       $geometry: {
+    //         type: 'Point',
+    //         coordinates: venue.location.coordinates,
+    //       },
+    //       $maxDistance: radiusMiles * 1609.34,
+    //     },
+    //   };
+    // }
     // If no location, skip location filtering - show all artists
 
-    // Budget filtering (artist's min price within venue's budget)
-    if (venue.budgetMax && venue.budgetMax > 0) {
-      matchQuery.minPrice = { $lte: venue.budgetMax };
-    }
+    // Budget filtering - DISABLED for development
+    // if (venue.budgetMax && venue.budgetMax > 0) {
+    //   matchQuery.minPrice = { $lte: venue.budgetMax };
+    // }
 
     // Exclude already swiped artists
     const swipedArtistIds = await this.getSwipedProfileIds(userId);
     if (swipedArtistIds.length > 0) {
       matchQuery._id = { $nin: swipedArtistIds };
     }
+
+    // Log the query for debugging
+    this.logger.log(`Discovery query for venue ${userId}: ${JSON.stringify(matchQuery)}`);
 
     // Execute query with pagination
     const skip = ((query.page ?? 1) - 1) * (query.limit ?? 20);

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Venue, VenueDocument } from '../schemas/venue.schema';
+import { Venue, VenueDocument } from './schemas/venue.schema';
 import { User, UserDocument } from '../schemas/user.schema';
 import { UpdateVenueDto, SearchVenuesDto } from './dto/venue.dto';
 
@@ -34,7 +34,7 @@ export class VenuesService {
 
       // Create basic venue profile
       venue = await this.venueModel.create({
-        user: userId,
+        userId,
         venueName: user.fullName || 'Venue',
         venueType: 'bar',
         location: {
@@ -43,7 +43,6 @@ export class VenuesService {
         },
         isProfileVisible: false,
         hasCompletedSetup: false,
-        isAcceptingBookings: false,
       });
 
       // Update user with venue reference
@@ -79,9 +78,7 @@ export class VenuesService {
 
     // Remove sensitive fields for public view
     const publicVenue = venue.toObject();
-    if (!publicVenue.showPhoneOnProfile) {
-      delete publicVenue.phone;
-    }
+    // Phone privacy is controlled at contact person level
 
     return publicVenue as VenueDocument;
   }
@@ -442,15 +439,15 @@ export class VenuesService {
     if (venue.venueName) score++;
     if (venue.venueType) score++;
     if (venue.description && venue.description.length > 20) score++;
-    if (venue.coverPhoto) score++;
-    if (venue.photoGallery && venue.photoGallery.length > 0) score++;
+    if (venue.photos && venue.photos.length > 0) score++;
+    // Already counted in photos check above
     if (venue.location?.city && venue.location?.country) score++;
     if (venue.capacity) score++;
     if (venue.equipment && Object.values(venue.equipment).some((v) => v))
       score++;
     if (venue.operatingHours && Object.keys(venue.operatingHours).length > 0)
       score++;
-    if (venue.maxBudget) score++;
+    if (venue.budgetMax) score++;
 
     return Math.round((score / totalFields) * 100);
   }
