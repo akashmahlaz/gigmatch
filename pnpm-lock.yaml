@@ -65,6 +65,9 @@ importers:
       google-auth-library:
         specifier: ^10.5.0
         version: 10.5.0
+      jsonwebtoken:
+        specifier: ^9.0.3
+        version: 9.0.3
       jwks-rsa:
         specifier: ^3.2.1
         version: 3.2.2
