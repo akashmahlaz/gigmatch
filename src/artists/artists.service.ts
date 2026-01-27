@@ -197,15 +197,42 @@ export class ArtistsService {
       normalized['yearsExperience'] = (dto as any).yearsOfExperience;
     }
 
-    // Location transformation
+    // Location transformation - handle partial location updates
     if (dto.location) {
-      normalized['location'] = {
+      const loc = dto.location;
+      const locationUpdate: Record<string, any> = {
         type: 'Point',
-        coordinates: dto.location.coordinates || [0, 0],
-        city: dto.location.city,
-        country: dto.location.country,
-        travelRadiusMiles: dto.location.travelRadius || dto.maxTravelDistance || 50,
       };
+
+      // Handle coordinates - prefer provided, fallback to [0, 0]
+      if (loc.coordinates && Array.isArray(loc.coordinates) && loc.coordinates.length >= 2) {
+        locationUpdate.coordinates = loc.coordinates;
+      } else {
+        locationUpdate.coordinates = [0, 0];
+      }
+
+      // Only set city if provided and non-empty
+      if (loc.city && typeof loc.city === 'string' && loc.city.trim()) {
+        locationUpdate.city = loc.city.trim();
+      }
+
+      // Only set country if provided and non-empty
+      if (loc.country && typeof loc.country === 'string' && loc.country.trim()) {
+        locationUpdate.country = loc.country.trim();
+      }
+
+      // Optional fields
+      if (loc.formattedAddress) {
+        locationUpdate.formattedAddress = loc.formattedAddress;
+      }
+      if (loc.state) {
+        locationUpdate.state = loc.state;
+      }
+
+      // Travel radius
+      locationUpdate.travelRadiusMiles = loc.travelRadius || dto.maxTravelDistance || 50;
+
+      normalized['location'] = locationUpdate;
     }
 
     // Audio samples - ensure proper structure with duration

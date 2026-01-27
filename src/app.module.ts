@@ -19,6 +19,7 @@ import { GigsModule } from './gigs/gigs.module';
 import { MessagesModule } from './messages/messages.module';
 import { MatchesModule } from './matches/matches.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { BookingsModule } from './bookings/bookings.module';
 // import { AnalyticsModule } from './analytics/analytics.module';
 import { NotificationsModule } from './notifications/notifications.module';
 // import { SubscriptionModule } from './subscription/subscription.module';
@@ -111,6 +112,7 @@ import { EmailModule } from './email/email.module';
     MessagesModule,
     MatchesModule,
     ReviewsModule,
+    BookingsModule,
     NotificationsModule,
     // AnalyticsModule,
     // SubscriptionModule,

@@ -47,13 +47,15 @@ class SocialLinksDto {
 }
 
 class LocationDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  city: string;
+  city?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  country: string;
+  country?: string;
 
   @ApiPropertyOptional({ type: [Number] })
   @IsOptional()
@@ -64,6 +66,21 @@ class LocationDto {
   @IsOptional()
   @IsNumber()
   travelRadius?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  formattedAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  type?: string;
 }
 
 class AudioSampleDto {

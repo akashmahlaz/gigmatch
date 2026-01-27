@@ -5,6 +5,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -26,6 +27,8 @@ import { GetSignedUploadDto, ServerUploadDto } from './dto/cloudinary.dto';
 export class CloudinaryController {
   constructor(private readonly cloudinaryService: CloudinaryService) {}
 
+  private readonly logger = new Logger(CloudinaryController.name);
+
   /**
    * Get signed upload parameters for client-side direct upload
    * Client uses these params to upload directly to Cloudinary
@@ -38,11 +41,29 @@ export class CloudinaryController {
     @CurrentUser() user: UserPayload,
     @Body() dto: GetSignedUploadDto,
   ): SignedUploadParams {
-    const folder = `${user.role}s/${user._id}`;
-    return this.cloudinaryService.generateSignedUploadParams(
-      folder,
-      dto.resourceType,
+    this.logger.log(
+      `Generating signed upload params for user ${user._id} (${user.role}) with resourceType ${dto.resourceType}`,
     );
+
+    try {
+      const folder = `${user.role}s/${user._id}`;
+      const params = this.cloudinaryService.generateSignedUploadParams(
+        folder,
+        dto.resourceType,
+      );
+
+      this.logger.log(
+        `Generated signed upload params for user ${user._id} (${user.role})`,
+      );
+
+      return params;
+    } catch (error) {
+      this.logger.error(
+        `Failed to generate signed upload params for user ${user._id}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   /**
@@ -56,10 +77,26 @@ export class CloudinaryController {
     @CurrentUser() user: UserPayload,
     @Body() dto: ServerUploadDto,
   ): Promise<UploadResult> {
-    return this.cloudinaryService.uploadProfilePhoto(
-      dto.file,
-      user._id.toString(),
-    );
+    this.logger.log(`Uploading profile photo for user ${user._id}`);
+
+    try {
+      const result = await this.cloudinaryService.uploadProfilePhoto(
+        dto.file,
+        user._id.toString(),
+      );
+
+      this.logger.log(
+        `Profile photo uploaded for user ${user._id} (${result.publicId})`,
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Profile photo upload failed for user ${user._id}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   /**
@@ -73,11 +110,28 @@ export class CloudinaryController {
     @CurrentUser() user: UserPayload,
     @Body() dto: ServerUploadDto,
   ): Promise<UploadResult> {
-    return this.cloudinaryService.uploadGalleryImage(
-      dto.file,
-      user._id.toString(),
-      dto.index || 0,
-    );
+    const index = dto.index || 0;
+    this.logger.log(`Uploading gallery image ${index} for user ${user._id}`);
+
+    try {
+      const result = await this.cloudinaryService.uploadGalleryImage(
+        dto.file,
+        user._id.toString(),
+        index,
+      );
+
+      this.logger.log(
+        `Gallery image ${index} uploaded for user ${user._id} (${result.publicId})`,
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Gallery image upload failed for user ${user._id} (index ${index}): ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   /**
@@ -91,10 +145,26 @@ export class CloudinaryController {
     @CurrentUser() user: UserPayload,
     @Body() dto: ServerUploadDto,
   ): Promise<UploadResult> {
-    return this.cloudinaryService.uploadAudioSample(
-      dto.file,
-      user._id.toString(),
-    );
+    this.logger.log(`Uploading audio sample for user ${user._id}`);
+
+    try {
+      const result = await this.cloudinaryService.uploadAudioSample(
+        dto.file,
+        user._id.toString(),
+      );
+
+      this.logger.log(
+        `Audio sample uploaded for user ${user._id} (${result.publicId})`,
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Audio sample upload failed for user ${user._id}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   /**
@@ -108,9 +178,25 @@ export class CloudinaryController {
     @CurrentUser() user: UserPayload,
     @Body() dto: ServerUploadDto,
   ): Promise<UploadResult> {
-    return this.cloudinaryService.uploadVideoSample(
-      dto.file,
-      user._id.toString(),
-    );
+    this.logger.log(`Uploading video sample for user ${user._id}`);
+
+    try {
+      const result = await this.cloudinaryService.uploadVideoSample(
+        dto.file,
+        user._id.toString(),
+      );
+
+      this.logger.log(
+        `Video sample uploaded for user ${user._id} (${result.publicId})`,
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Video sample upload failed for user ${user._id}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 }

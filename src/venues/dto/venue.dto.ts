@@ -50,11 +50,17 @@ class LocationDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  type?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   streetAddress?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  city: string;
+  city?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -66,14 +72,25 @@ class LocationDto {
   @IsString()
   postalCode?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  country: string;
+  country?: string;
 
   @ApiPropertyOptional({ type: [Number] })
   @IsOptional()
   @IsArray()
   coordinates?: number[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  formattedAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  neighborhood?: string;
 }
 
 class EquipmentDto {

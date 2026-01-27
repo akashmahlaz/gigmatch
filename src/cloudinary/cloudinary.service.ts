@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 
@@ -22,6 +22,8 @@ export interface UploadResult {
 
 @Injectable()
 export class CloudinaryService {
+  private readonly logger = new Logger(CloudinaryService.name);
+
   constructor(private configService: ConfigService) {
     // Configure Cloudinary
     cloudinary.config({
@@ -60,6 +62,10 @@ export class CloudinaryService {
       apiSecret,
     );
 
+    this.logger.log(
+      `cloudinary:signed-params folder=gigmatch/${folder} resourceType=${resourceType}`,
+    );
+
     return {
       signature,
       timestamp,
@@ -82,12 +88,19 @@ export class CloudinaryService {
     },
   ): Promise<UploadResult> {
     try {
+      this.logger.log(
+        `cloudinary:upload:start folder=${folder} resourceType=${options?.resourceType ?? 'auto'} publicId=${options?.publicId ?? 'auto'}`,
+      );
       const result: UploadApiResponse = await cloudinary.uploader.upload(file, {
         folder: `gigmatch/${folder}`,
         resource_type: options?.resourceType || 'auto',
         transformation: options?.transformation,
         public_id: options?.publicId,
       });
+
+      this.logger.log(
+        `cloudinary:upload:success folder=${folder} publicId=${result.public_id}`,
+      );
 
       return {
         publicId: result.public_id,
@@ -99,6 +112,10 @@ export class CloudinaryService {
         resourceType: result.resource_type,
       };
     } catch (error) {
+      this.logger.error(
+        `cloudinary:upload:error folder=${folder}`,
+        error instanceof Error ? error.stack : undefined,
+      );
       throw new BadRequestException(
         `Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
@@ -187,7 +204,10 @@ export class CloudinaryService {
       });
       return result.result === 'ok';
     } catch (error) {
-      console.error('Failed to delete file:', error);
+      this.logger.error(
+        `cloudinary:delete:error publicId=${publicId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
       return false;
     }
   }
