@@ -282,18 +282,26 @@ export class SwipesService {
 
     // Get artist profile for preferences
     // Try both 'user' field (old schema) and 'userId' field (new schema)
-    let artist = await this.artistModel.findOne({ 
-      $or: [{ user: userId }, { userId: userId }] 
+    let artist = await this.artistModel.findOne({
+      $or: [{ user: userId }, { userId: userId }],
     });
-    
+
     // If artist profile doesn't exist, return empty results (user needs to complete setup)
     if (!artist) {
-      this.logger.warn(`Artist profile not found for user ${userId}, returning empty discovery`);
+      this.logger.warn(
+        `Artist profile not found for user ${userId}, returning empty discovery`,
+      );
       return { gigs: [], total: 0, page: query.page ?? 1 };
     }
 
-    // Build match query
+    // Build match query for finding gigs
     const matchQuery: any = {
+      status: 'open',
+      isActive: true,
+    };
+
+    // Build a separate count query without $near (which doesn't work with countDocuments)
+    const countQuery: any = {
       status: 'open',
       isActive: true,
     };
@@ -301,8 +309,10 @@ export class SwipesService {
     // Genre matching
     if (query.genres && query.genres.length > 0) {
       matchQuery.genres = { $in: query.genres };
+      countQuery.genres = { $in: query.genres };
     } else if (artist.genres && artist.genres.length > 0) {
       matchQuery.genres = { $in: artist.genres };
+      countQuery.genres = { $in: artist.genres };
     }
 
     // Location-based filtering (only if coordinates are provided)
@@ -311,6 +321,7 @@ export class SwipesService {
       query.longitude != null &&
       query.radiusMiles != null
     ) {
+      // Use $near for find() - provides sorted results
       matchQuery.location = {
         $near: {
           $geometry: {
@@ -320,11 +331,29 @@ export class SwipesService {
           $maxDistance: query.radiusMiles * 1609.34, // Convert miles to meters
         },
       };
-    } else if (artist.location?.coordinates && artist.location.coordinates.length === 2 && 
-               (artist.location.coordinates[0] !== 0 || artist.location.coordinates[1] !== 0)) {
+      // Use $geoWithin for count() - works with countDocuments
+      countQuery.location = {
+        $geoWithin: {
+          $centerSphere: [
+            [query.longitude, query.latitude],
+            query.radiusMiles / 3963.2, // Convert miles to radians
+          ],
+        },
+      };
+    } else if (
+      artist.location?.coordinates &&
+      artist.location.coordinates.length === 2 &&
+      (artist.location.coordinates[0] !== 0 ||
+        artist.location.coordinates[1] !== 0)
+    ) {
       // Use artist's location with default radius (only if valid coordinates exist)
       // Handle both old schema (travelRadius) and new schema (travelRadiusMiles)
-      const radiusMiles = query.radiusMiles ?? (artist.location as any)?.travelRadiusMiles ?? (artist.location as any)?.travelRadius ?? 50;
+      const radiusMiles =
+        query.radiusMiles ??
+        (artist.location as any)?.travelRadiusMiles ??
+        (artist.location as any)?.travelRadius ??
+        50;
+      // Use $near for find() - provides sorted results
       matchQuery.location = {
         $near: {
           $geometry: {
@@ -334,29 +363,46 @@ export class SwipesService {
           $maxDistance: radiusMiles * 1609.34,
         },
       };
+      // Use $geoWithin for count() - works with countDocuments
+      countQuery.location = {
+        $geoWithin: {
+          $centerSphere: [
+            artist.location.coordinates,
+            radiusMiles / 3963.2, // Convert miles to radians
+          ],
+        },
+      };
     }
     // If no location, skip location filtering - show all gigs
 
     // Budget filtering
     if (query.minBudget != null || query.maxBudget != null) {
       matchQuery.budgetMax = { $gte: query.minBudget ?? 0 };
+      countQuery.budgetMax = { $gte: query.minBudget ?? 0 };
       if (query.maxBudget != null) {
-        matchQuery.$expr = {
+        const budgetExpr = {
           $and: [
             { $gte: ['$budgetMax', query.minBudget ?? 0] },
             { $lte: ['$budgetMax', query.maxBudget] },
           ],
         };
+        matchQuery.$expr = budgetExpr;
+        countQuery.$expr = budgetExpr;
       }
     }
 
     // Date filtering
     if (query.dateFrom) {
       matchQuery.date = { $gte: new Date(query.dateFrom) };
+      countQuery.date = { $gte: new Date(query.dateFrom) };
     }
     if (query.dateTo) {
       matchQuery.date = {
         ...matchQuery.date,
+        $lte: new Date(query.dateTo),
+      };
+      countQuery.date = {
+        ...countQuery.date,
         $lte: new Date(query.dateTo),
       };
     }
@@ -365,6 +411,7 @@ export class SwipesService {
     const swipedGigIds = await this.getSwipedGigIds(userId);
     if (swipedGigIds.length > 0) {
       matchQuery._id = { $nin: swipedGigIds };
+      countQuery._id = { $nin: swipedGigIds };
     }
 
     // Execute query with pagination
@@ -379,7 +426,7 @@ export class SwipesService {
         .limit(limit)
         .populate('venueId', 'venueName location profilePhotoUrl')
         .lean(),
-      this.gigModel.countDocuments(matchQuery),
+      this.gigModel.countDocuments(countQuery),
     ]);
 
     // Add recommendation scores
@@ -414,17 +461,19 @@ export class SwipesService {
 
     // Get venue profile for preferences
     // Try both 'user' field (old schema) and 'userId' field (new schema)
-    let venue = await this.venueModel.findOne({ 
-      $or: [{ user: userId }, { userId: userId }] 
+    let venue = await this.venueModel.findOne({
+      $or: [{ user: userId }, { userId: userId }],
     });
-    
+
     // If venue profile doesn't exist, return empty results (user needs to complete setup)
     if (!venue) {
-      this.logger.warn(`Venue profile not found for user ${userId}, returning empty discovery`);
+      this.logger.warn(
+        `Venue profile not found for user ${userId}, returning empty discovery`,
+      );
       return { artists: [], total: 0, page: query.page ?? 1 };
     }
 
-    // Build match query
+    // Build match query for finding results
     const matchQuery: any = {
       // During development, show all artists regardless of profile status
       // In production, uncomment the filters below:
@@ -432,22 +481,27 @@ export class SwipesService {
       // hasCompletedSetup: { $ne: false }, // Show unless explicitly incomplete
     };
 
+    // Build a separate count query without $near (which doesn't work with countDocuments)
+    const countQuery: any = { ...matchQuery };
+
     // Genre matching - Only filter if user explicitly requests genres
     if (query.genres && query.genres.length > 0) {
       matchQuery.genres = { $in: query.genres };
+      countQuery.genres = { $in: query.genres };
     }
     // Don't filter by venue.preferredGenres during development
     // else if (venue.preferredGenres && venue.preferredGenres.length > 0) {
     //   matchQuery.genres = { $in: venue.preferredGenres };
     // }
 
-    // Location-based filtering - DISABLED for development
+    // Location-based filtering - Use $geoWithin for count (works with countDocuments)
     // Only apply if query explicitly requests location filtering
     if (
       query.latitude != null &&
       query.longitude != null &&
       query.radiusMiles != null
     ) {
+      // Use $near for find() - provides sorted results
       matchQuery['location.coordinates'] = {
         $near: {
           $geometry: {
@@ -455,6 +509,15 @@ export class SwipesService {
             coordinates: [query.longitude, query.latitude],
           },
           $maxDistance: query.radiusMiles * 1609.34,
+        },
+      };
+      // Use $geoWithin for count() - works with countDocuments
+      countQuery['location.coordinates'] = {
+        $geoWithin: {
+          $centerSphere: [
+            [query.longitude, query.latitude],
+            query.radiusMiles / 3963.2, // Convert miles to radians
+          ],
         },
       };
     }
@@ -483,10 +546,13 @@ export class SwipesService {
     const swipedArtistIds = await this.getSwipedProfileIds(userId);
     if (swipedArtistIds.length > 0) {
       matchQuery._id = { $nin: swipedArtistIds };
+      countQuery._id = { $nin: swipedArtistIds };
     }
 
     // Log the query for debugging
-    this.logger.log(`Discovery query for venue ${userId}: ${JSON.stringify(matchQuery)}`);
+    this.logger.log(
+      `Discovery query for venue ${userId}: ${JSON.stringify(matchQuery)}`,
+    );
 
     // Execute query with pagination
     const skip = ((query.page ?? 1) - 1) * (query.limit ?? 20);
@@ -500,7 +566,8 @@ export class SwipesService {
         .limit(limit)
         .select('-email -phone -socialLinks')
         .lean(),
-      this.artistModel.countDocuments(matchQuery),
+      // Use countQuery (without $near) for counting - $near doesn't work with countDocuments
+      this.artistModel.countDocuments(countQuery),
     ]);
 
     // Add recommendation scores
@@ -692,7 +759,8 @@ export class SwipesService {
     page = 1,
     limit = 20,
   ): Promise<{ profiles: any[]; total: number }> {
-    const targetRole = role === UserRole.ARTIST ? UserRole.VENUE : UserRole.ARTIST;
+    const targetRole =
+      role === UserRole.ARTIST ? UserRole.VENUE : UserRole.ARTIST;
 
     const skip = (page - 1) * limit;
 
@@ -1026,7 +1094,9 @@ export class SwipesService {
       .select('relatedGigId')
       .lean();
 
-    return swipes.map((s) => s.relatedGigId as Types.ObjectId).filter(id => id != null);
+    return swipes
+      .map((s) => s.relatedGigId as Types.ObjectId)
+      .filter((id) => id != null);
   }
 
   /**
@@ -1036,10 +1106,7 @@ export class SwipesService {
     const swipes = await this.swipeModel
       .find({
         swiperId: new Types.ObjectId(userId),
-        $or: [
-          { relatedGigId: { $exists: false } },
-          { relatedGigId: null }
-        ]
+        $or: [{ relatedGigId: { $exists: false } }, { relatedGigId: null }],
       })
       .select('targetId')
       .lean();

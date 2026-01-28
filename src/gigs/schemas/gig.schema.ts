@@ -275,7 +275,7 @@ export const GigSchema = SchemaFactory.createForClass(Gig);
 // Compound indexes for efficient queries
 GigSchema.index({ venue: 1, status: 1, createdAt: -1 });
 GigSchema.index({ status: 1, date: 1, genres: 1 });
-GigSchema.index({ 'location.coordinates': '2dsphere' });
+GigSchema.index({ location: '2dsphere' }); // 2dsphere index on GeoJSON field for $near queries
 GigSchema.index({ genres: 1, status: 1, date: 1 });
 GigSchema.index({ status: 1, isFeatured: 1, date: 1 });
 GigSchema.index({ venue: 1, status: 1, applicationCount: -1 });

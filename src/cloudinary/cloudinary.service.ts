@@ -49,11 +49,11 @@ export class CloudinaryService {
       throw new BadRequestException('Cloudinary not configured');
     }
 
-    // Parameters to sign
+    // Parameters to sign - only include params that will be sent in the request body
+    // Note: resource_type is part of the URL path, NOT the signed params
     const paramsToSign = {
       timestamp,
       folder: `gigmatch/${folder}`,
-      resource_type: resourceType,
     };
 
     // Generate signature
@@ -112,13 +112,20 @@ export class CloudinaryService {
         resourceType: result.resource_type,
       };
     } catch (error) {
+      // Extract Cloudinary-specific error details
+      const cloudinaryError = (error as any)?.error || error;
+      const errorMessage =
+        cloudinaryError?.message ||
+        (typeof cloudinaryError === 'object'
+          ? JSON.stringify(cloudinaryError)
+          : String(cloudinaryError)) ||
+        'Unknown error';
+
       this.logger.error(
-        `cloudinary:upload:error folder=${folder}`,
+        `cloudinary:upload:error folder=${folder} error=${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
       );
-      throw new BadRequestException(
-        `Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
+      throw new BadRequestException(`Failed to upload file: ${errorMessage}`);
     }
   }
 
@@ -167,10 +174,7 @@ export class CloudinaryService {
   /**
    * Upload audio sample
    */
-  async uploadAudioSample(
-    file: string,
-    userId: string,
-  ): Promise<UploadResult> {
+  async uploadAudioSample(file: string, userId: string): Promise<UploadResult> {
     return this.uploadFile(file, 'audio', {
       resourceType: 'raw',
       publicId: `audio_${userId}_${Date.now()}`,
@@ -180,10 +184,7 @@ export class CloudinaryService {
   /**
    * Upload video sample
    */
-  async uploadVideoSample(
-    file: string,
-    userId: string,
-  ): Promise<UploadResult> {
+  async uploadVideoSample(file: string, userId: string): Promise<UploadResult> {
     return this.uploadFile(file, 'videos', {
       resourceType: 'video',
       publicId: `video_${userId}_${Date.now()}`,
@@ -197,7 +198,10 @@ export class CloudinaryService {
   /**
    * Delete a file from Cloudinary
    */
-  async deleteFile(publicId: string, resourceType: 'image' | 'video' | 'raw' = 'image'): Promise<boolean> {
+  async deleteFile(
+    publicId: string,
+    resourceType: 'image' | 'video' | 'raw' = 'image',
+  ): Promise<boolean> {
     try {
       const result = await cloudinary.uploader.destroy(publicId, {
         resource_type: resourceType,
