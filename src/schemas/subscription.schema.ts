@@ -1,7 +1,26 @@
-import { Prop, Schema, SchemaFactory, raw } from '@nestjs/mongoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type SubscriptionDocument = HydratedDocument<Subscription>;
+
+// Subscription status enum for type safety
+export enum SubscriptionStatus {
+  ACTIVE = 'active',
+  CANCELLED = 'cancelled',
+  CANCELED = 'canceled', // Alias for compatibility
+  PAST_DUE = 'past_due',
+  EXPIRED = 'expired',
+  TRIALING = 'trialing',
+  UNPAID = 'unpaid',
+  PAUSED = 'paused',
+}
+
+// Subscription plan enum for type safety
+export enum SubscriptionPlan {
+  FREE = 'free',
+  BASIC = 'basic',
+  PRO = 'pro',
+}
 
 /**
  * 💳 SUBSCRIPTION SCHEMA
@@ -21,7 +40,7 @@ export type SubscriptionDocument = HydratedDocument<Subscription>;
 })
 export class Subscription {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, unique: true })
-  user: Types.ObjectId;
+  userId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'Artist' })
   artist?: Types.ObjectId;
@@ -36,10 +55,10 @@ export class Subscription {
 
   // Status
   @Prop({
-    enum: ['active', 'cancelled', 'past_due', 'expired', 'trialing'],
-    default: 'active',
+    enum: Object.values(SubscriptionStatus),
+    default: SubscriptionStatus.ACTIVE,
   })
-  status: 'active' | 'cancelled' | 'past_due' | 'expired' | 'trialing';
+  status: SubscriptionStatus;
 
   // Billing cycle
   @Prop({ enum: ['monthly', 'yearly'], default: 'monthly' })
@@ -62,22 +81,8 @@ export class Subscription {
   stripeCustomerId?: string;
 
   // Payment history
-  @Prop(
-    raw([
-      {
-        amount: { type: Number, required: true },
-        currency: { type: String, default: 'USD' },
-        status: {
-          type: String,
-          enum: ['succeeded', 'failed', 'pending', 'refunded'],
-        },
-        stripePaymentIntentId: { type: String },
-        paidAt: { type: Date },
-        invoiceUrl: { type: String },
-      },
-    ]),
-  )
-  paymentHistory: {
+  @Prop({ type: Array })
+  paymentHistory?: {
     amount: number;
     currency: string;
     status: 'succeeded' | 'failed' | 'pending' | 'refunded';
@@ -93,23 +98,30 @@ export class Subscription {
   @Prop()
   trialEndsAt?: Date;
 
+  @Prop()
+  trialEnd?: Date;
+
+  // Tier (alias for plan, used by subscription service)
+  @Prop({ default: 'free' })
+  tier?: string;
+
+  // Billing flags
+  @Prop({ default: false })
+  isYearlyBilling?: boolean;
+
+  @Prop({ default: false })
+  hasActiveSubscription?: boolean;
+
+  @Prop()
+  updatedAt?: Date;
+
   // Features (based on plan)
-  @Prop(
-    raw({
-      dailySwipeLimit: { type: Number, default: 10 },
-      canSeeWhoLikedYou: { type: Boolean, default: false },
-      boostsPerMonth: { type: Number, default: 0 },
-      priorityInSearch: { type: Boolean, default: false },
-      advancedAnalytics: { type: Boolean, default: false },
-      customProfileUrl: { type: Boolean, default: false },
-      verifiedBadge: { type: Boolean, default: false },
-      unlimitedMessages: { type: Boolean, default: true },
-    }),
-  )
-  features: {
+  @Prop({ type: Object })
+  features?: Record<string, any> | {
     dailySwipeLimit: number;
     canSeeWhoLikedYou: boolean;
     boostsPerMonth: number;
+    maxProfileBoosts?: number;
     priorityInSearch: boolean;
     advancedAnalytics: boolean;
     customProfileUrl: boolean;
@@ -131,11 +143,14 @@ export class Subscription {
   lastBoostResetAt?: Date;
 
   // Cancellation
-  @Prop({ default: false })
-  cancelAtPeriodEnd: boolean;
+  @Prop({ type: Boolean })
+  cancelAtPeriodEnd?: boolean;
 
   @Prop()
   cancelledAt?: Date;
+
+  @Prop()
+  canceledAt?: Date; // Alias for American spelling
 
   @Prop()
   cancellationReason?: string;

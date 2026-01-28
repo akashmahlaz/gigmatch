@@ -38,7 +38,7 @@ export class ArtistsService {
    * If artist doesn't exist, create a basic one (handles edge cases)
    */
   async findByUserId(userId: string): Promise<ArtistDocument> {
-    let artist = await this.artistModel.findOne({ user: userId }).exec();
+    let artist = await this.artistModel.findOne({ userId }).exec();
 
     // If artist doesn't exist, create a basic profile
     if (!artist) {
@@ -106,7 +106,7 @@ export class ArtistsService {
     userId: string,
     updateArtistDto: UpdateArtistDto,
   ): Promise<ArtistDocument> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
@@ -276,7 +276,7 @@ export class ArtistsService {
     updateData?: UpdateArtistDto,
   ): Promise<ArtistDocument> {
     try {
-      let artist = await this.artistModel.findOne({ user: userId }).exec();
+      let artist = await this.artistModel.findOne({ userId }).exec();
 
       // If artist doesn't exist, create it (handles edge case where registration partially failed)
       if (!artist) {
@@ -286,7 +286,7 @@ export class ArtistsService {
         }
 
         const createData: Record<string, any> = {
-          user: userId,
+          userId,
           displayName: updateData?.displayName || user.fullName || 'Artist',
           isProfileVisible: false,
           hasCompletedSetup: false,
@@ -574,7 +574,7 @@ export class ArtistsService {
     userId: string,
     durationHours = 24,
   ): Promise<ArtistDocument> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
@@ -604,7 +604,7 @@ export class ArtistsService {
     userId: string,
     query: GetAvailabilityQueryDto,
   ): Promise<CalendarResponseDto> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
@@ -687,7 +687,7 @@ export class ArtistsService {
     userId: string,
     query: GetAvailabilityQueryDto,
   ): Promise<{ slots: any[] }> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
@@ -724,7 +724,7 @@ export class ArtistsService {
     userId: string,
     dto: UpdateAvailabilityDto,
   ): Promise<{ slots: any[]; message: string }> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
@@ -754,7 +754,7 @@ export class ArtistsService {
     userId: string,
     dto: AddAvailabilityDto,
   ): Promise<{ slot: any; message: string }> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
@@ -800,7 +800,7 @@ export class ArtistsService {
     userId: string,
     dto: RemoveAvailabilityDto,
   ): Promise<{ message: string }> {
-    const artist = await this.artistModel.findOne({ user: userId }).exec();
+    const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }

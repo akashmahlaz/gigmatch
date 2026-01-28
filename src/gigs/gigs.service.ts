@@ -150,7 +150,7 @@ export class GigsService {
     const skip = (page - 1) * limit;
 
     const venue = await this.venueModel
-      .findOne({ user: new Types.ObjectId(venueUserId) })
+      .findOne({ userId: new Types.ObjectId(venueUserId) })
       .exec();
 
     if (!venue) {
@@ -186,7 +186,7 @@ export class GigsService {
     query: DiscoverGigsDto,
   ): Promise<DiscoverResult<GigDocument>> {
     const artist = await this.artistModel
-      .findOne({ user: new Types.ObjectId(artistUserId) })
+      .findOne({ userId: new Types.ObjectId(artistUserId) })
       .exec();
 
     if (!artist) {

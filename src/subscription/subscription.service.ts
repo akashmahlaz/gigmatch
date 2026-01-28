@@ -28,7 +28,7 @@ import {
   Subscription,
   SubscriptionDocument,
   SubscriptionStatus,
-} from './schemas/subscription.schema';
+} from '../schemas/subscription.schema';
 import { Invoice, InvoiceDocument } from './schemas/invoice.schema';
 import {
   PaymentMethod,
@@ -189,7 +189,7 @@ export class SubscriptionService {
     userId: string,
   ): Promise<SubscriptionDocument | null> {
     const userIdObj = new Types.ObjectId(userId);
-    return this.subscriptionModel.findOne({ user: userIdObj }).exec();
+    return this.subscriptionModel.findOne({ userId: userIdObj }).exec();
   }
 
   /// Create checkout session for subscription
@@ -391,7 +391,7 @@ export class SubscriptionService {
   ): Promise<SubscriptionDocument> {
     const userIdObj = new Types.ObjectId(userId);
     const subscription = await this.subscriptionModel
-      .findOne({ user: userIdObj })
+      .findOne({ userId: userIdObj })
       .exec();
 
     if (!subscription) {
@@ -417,9 +417,7 @@ export class SubscriptionService {
         subscription.stripeSubscriptionId,
         false,
       );
-      subscription.cancelAtPeriodEnd = subscription.currentPeriodEnd
-        ? new Date(subscription.currentPeriodEnd)
-        : undefined;
+      subscription.cancelAtPeriodEnd = true;
       subscription.canceledAt = new Date();
     }
 
@@ -439,7 +437,7 @@ export class SubscriptionService {
   async resumeSubscription(userId: string): Promise<SubscriptionDocument> {
     const userIdObj = new Types.ObjectId(userId);
     const subscription = await this.subscriptionModel
-      .findOne({ user: userIdObj })
+      .findOne({ userId: userIdObj })
       .exec();
 
     if (!subscription) {
@@ -479,7 +477,7 @@ export class SubscriptionService {
   ): Promise<SubscriptionDocument> {
     const userIdObj = new Types.ObjectId(dto.userId);
     const subscription = await this.subscriptionModel
-      .findOne({ user: userIdObj })
+      .findOne({ userId: userIdObj })
       .exec();
 
     if (!subscription) {
@@ -537,7 +535,7 @@ export class SubscriptionService {
 
     // Check if already has trial
     const existingSubscription = await this.subscriptionModel
-      .findOne({ user: userIdObj })
+      .findOne({ userId: userIdObj })
       .exec();
     if (
       existingSubscription &&
@@ -548,7 +546,7 @@ export class SubscriptionService {
     }
 
     const subscription = new this.subscriptionModel({
-      user: userIdObj,
+      userId: userIdObj,
       tier,
       status: 'trialing',
       hasActiveSubscription: true,
@@ -573,7 +571,7 @@ export class SubscriptionService {
   async getRemainingBoosts(userId: string): Promise<number> {
     const userIdObj = new Types.ObjectId(userId);
     const subscription = await this.subscriptionModel
-      .findOne({ user: userIdObj })
+      .findOne({ userId: userIdObj })
       .exec();
 
     if (!subscription) {
@@ -589,7 +587,7 @@ export class SubscriptionService {
   ): Promise<{ success: boolean; remainingBoosts: number }> {
     const userIdObj = new Types.ObjectId(userId);
     const subscription = await this.subscriptionModel
-      .findOne({ user: userIdObj })
+      .findOne({ userId: userIdObj })
       .exec();
 
     if (!subscription) {
@@ -662,7 +660,7 @@ export class SubscriptionService {
       paymentMethod.isDefault = dto.setAsDefault || false;
     } else {
       paymentMethod = new this.paymentMethodModel({
-        user: userIdObj,
+        userId: userIdObj,
         stripePaymentMethodId: dto.paymentMethodId,
         type: stripePaymentMethod.type || 'card',
         brand: stripePaymentMethod.card?.brand,
@@ -703,7 +701,7 @@ export class SubscriptionService {
 
     // Update local records
     await this.paymentMethodModel
-      .updateMany({ user: userIdObj }, { isDefault: false })
+      .updateMany({ userId: userIdObj }, { isDefault: false })
       .exec();
 
     await this.paymentMethodModel
@@ -750,7 +748,7 @@ export class SubscriptionService {
     const userIdObj = new Types.ObjectId(userId);
 
     const invoices = await this.invoiceModel
-      .find({ user: userIdObj })
+      .find({ userId: userIdObj })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit + 1)
@@ -839,7 +837,7 @@ export class SubscriptionService {
 
     const userIdObj = new Types.ObjectId(user._id);
     const existingSubscription = await this.subscriptionModel
-      .findOne({ user: userIdObj })
+      .findOne({ userId: userIdObj })
       .exec();
 
     if (existingSubscription) {
@@ -850,9 +848,8 @@ export class SubscriptionService {
       existingSubscription.currentPeriodEnd = new Date(
         subscription.current_period_end * 1000,
       );
-      existingSubscription.cancelAtPeriodEnd = subscription.cancel_at_period_end
-        ? new Date(subscription.current_period_end * 1000)
-        : undefined;
+      existingSubscription.cancelAtPeriodEnd =
+        subscription.cancel_at_period_end === true;
       existingSubscription.updatedAt = new Date();
       await existingSubscription.save();
     }
@@ -870,7 +867,7 @@ export class SubscriptionService {
     const userIdObj = new Types.ObjectId(user._id);
     await this.subscriptionModel
       .findOneAndUpdate(
-        { user: userIdObj },
+        { userId: userIdObj },
         {
           status: 'canceled',
           hasActiveSubscription: false,
@@ -1017,10 +1014,8 @@ export class SubscriptionService {
       subscription.currentPeriodEnd = new Date(
         (stripeSubscription as any).current_period_end * 1000,
       );
-      subscription.cancelAtPeriodEnd = (stripeSubscription as any)
-        .cancel_at_period_end
-        ? new Date((stripeSubscription as any).current_period_end * 1000)
-        : undefined;
+      subscription.cancelAtPeriodEnd =
+        (stripeSubscription as any).cancel_at_period_end === true;
       subscription.updatedAt = new Date();
 
       await subscription.save();
@@ -1095,3 +1090,4 @@ export class SubscriptionService {
     }
   }
 }
+

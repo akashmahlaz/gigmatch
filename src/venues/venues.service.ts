@@ -23,7 +23,7 @@ export class VenuesService {
    * If venue doesn't exist, create a basic one (handles edge cases)
    */
   async findByUserId(userId: string): Promise<VenueDocument> {
-    let venue = await this.venueModel.findOne({ user: userId }).exec();
+    let venue = await this.venueModel.findOne({ userId }).exec();
 
     // If venue doesn't exist, create a basic profile
     if (!venue) {
@@ -90,7 +90,7 @@ export class VenuesService {
     userId: string,
     updateVenueDto: UpdateVenueDto,
   ): Promise<VenueDocument> {
-    const venue = await this.venueModel.findOne({ user: userId }).exec();
+    const venue = await this.venueModel.findOne({ userId }).exec();
     if (!venue) {
       throw new NotFoundException('Venue profile not found');
     }
@@ -121,7 +121,7 @@ export class VenuesService {
     updateData?: UpdateVenueDto,
   ): Promise<VenueDocument> {
     try {
-      let venue = await this.venueModel.findOne({ user: userId }).exec();
+      let venue = await this.venueModel.findOne({ userId }).exec();
 
       // If venue doesn't exist, create it (handles edge case where registration partially failed)
       if (!venue) {
@@ -132,7 +132,7 @@ export class VenuesService {
 
         // Create new venue profile with provided data (schema-safe fields only)
         const createData: Record<string, any> = {
-          user: userId,
+          userId,
           venueName: updateData?.venueName || user.fullName || 'Venue',
           venueType: updateData?.venueType || 'bar',
           location: updateData?.location || {

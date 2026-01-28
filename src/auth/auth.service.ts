@@ -154,7 +154,7 @@ export class AuthService {
 
         // Create free subscription for artist
         await this.subscriptionModel.create({
-          user: user._id,
+          userId: user._id,
           artist: artist._id,
           plan: 'free',
           status: 'active',
@@ -824,7 +824,7 @@ export class AuthService {
 
       // Create free subscription
       await this.subscriptionModel.create({
-        user: user._id,
+        userId: user._id,
         artist: artist._id,
         plan: 'free',
         status: 'active',
