@@ -676,7 +676,7 @@ ArtistSchema.methods.getActiveLocation = function (): ArtistLocation | null {
 };
 
 /// Pre-save hook to calculate profile completeness
-ArtistSchema.pre('save', function (next: any) {
+ArtistSchema.pre('save', function () {
   if (
     this.isModified('displayName') ||
     this.isModified('bio') ||
@@ -695,7 +695,6 @@ ArtistSchema.pre('save', function (next: any) {
     this.profileCompleteness = (this as any).calculateProfileCompleteness();
     this.hasCompletedSetup = this.profileCompleteness >= 80;
   }
-  next();
 });
 
 /// Instance method to get public profile (hide sensitive data)
