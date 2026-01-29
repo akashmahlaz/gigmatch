@@ -25,6 +25,8 @@ import { NotificationsModule } from './notifications/notifications.module';
 // import { SubscriptionModule } from './subscription/subscription.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { EmailModule } from './email/email.module';
+import { PostsModule } from './posts/posts.module';
+import { StoriesModule } from './stories/stories.module';
 
 @Module({
   imports: [
@@ -114,6 +116,8 @@ import { EmailModule } from './email/email.module';
     ReviewsModule,
     BookingsModule,
     NotificationsModule,
+    PostsModule,
+    StoriesModule,
     // AnalyticsModule,
     // SubscriptionModule,
   ],

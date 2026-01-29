@@ -13,3 +13,5 @@ export * from './booking.schema';
 export * from './review.schema';
 export * from './subscription.schema';
 export * from './notification.schema';
+export * from './post.schema';
+export * from './story.schema';

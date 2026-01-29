@@ -85,6 +85,10 @@ export class VenuesService {
 
   /**
    * Update venue profile
+   * 
+   * IMPORTANT: This method normalizes field names from Flutter DTO to MongoDB schema.
+   * Flutter uses: coverPhoto, photoGallery
+   * MongoDB uses: photos array with profilePhotoUrl as first item
    */
   async update(
     userId: string,
@@ -95,21 +99,75 @@ export class VenuesService {
       throw new NotFoundException('Venue profile not found');
     }
 
+    // Normalize field names from Flutter DTO to MongoDB schema
+    const normalizedUpdate = this.normalizeVenueUpdate(updateVenueDto, venue);
+
     // Calculate profile completion percentage
     const completionPercent = this.calculateProfileCompletion({
       ...venue.toObject(),
-      ...updateVenueDto,
+      ...normalizedUpdate,
     } as Partial<Venue>);
 
     const updated = await this.venueModel
       .findByIdAndUpdate(
         venue._id,
-        { ...updateVenueDto, profileCompletionPercent: completionPercent },
+        { ...normalizedUpdate, profileCompletionPercent: completionPercent },
         { new: true },
       )
       .exec();
 
     return updated!;
+  }
+
+  /**
+   * Normalize Flutter DTO field names to MongoDB schema field names
+   */
+  private normalizeVenueUpdate(dto: UpdateVenueDto, existingVenue: VenueDocument): Record<string, any> {
+    const normalized: Record<string, any> = { ...dto };
+
+    // coverPhoto -> stored as first photo in photos array marked as primary
+    // photoGallery -> stored as photos array
+    if (dto.coverPhoto || dto.photoGallery) {
+      const photos: Array<{
+        url: string;
+        caption?: string;
+        isPrimary: boolean;
+        order: number;
+        uploadedAt: Date;
+      }> = [];
+
+      // Add cover photo as primary
+      if (dto.coverPhoto) {
+        photos.push({
+          url: dto.coverPhoto,
+          isPrimary: true,
+          order: 0,
+          uploadedAt: new Date(),
+        });
+      }
+
+      // Add gallery photos
+      if (dto.photoGallery) {
+        dto.photoGallery.forEach((url, index) => {
+          photos.push({
+            url,
+            isPrimary: false,
+            order: (dto.coverPhoto ? 1 : 0) + index,
+            uploadedAt: new Date(),
+          });
+        });
+      }
+
+      if (photos.length > 0) {
+        normalized['photos'] = photos;
+      }
+
+      // Remove DTO-only fields
+      delete normalized['coverPhoto'];
+      delete normalized['photoGallery'];
+    }
+
+    return normalized;
   }
 
   /**

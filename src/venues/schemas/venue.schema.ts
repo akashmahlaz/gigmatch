@@ -648,6 +648,10 @@ export class Venue {
 export type VenueDocument = Venue & Document;
 export const VenueSchema = SchemaFactory.createForClass(Venue);
 
+// Enable virtuals in JSON output
+VenueSchema.set('toJSON', { virtuals: true });
+VenueSchema.set('toObject', { virtuals: true });
+
 // ═══════════════════════════════════════════════════════════════════════════
 // INDEXES FOR PERFORMANCE
 // ═══════════════════════════════════════════════════════════════════════════
@@ -716,6 +720,20 @@ VenueSchema.virtual('primaryContact').get(function (): ContactPerson | null {
 VenueSchema.virtual('primaryPhoto').get(function (): string | null {
   const primary = this.photos.find((p) => p.isPrimary);
   return primary?.url || this.photos[0]?.url || null;
+});
+
+/// Virtual for profile photo URL (alias for primaryPhoto for Flutter compatibility)
+VenueSchema.virtual('profilePhotoUrl').get(function (): string | null {
+  const primary = this.photos.find((p) => p.isPrimary);
+  return primary?.url || this.photos[0]?.url || null;
+});
+
+/// Virtual for gallery URLs (non-primary photos for Flutter compatibility)
+VenueSchema.virtual('galleryUrls').get(function (): string[] {
+  return this.photos
+    .filter((p) => !p.isPrimary)
+    .sort((a, b) => a.order - b.order)
+    .map((p) => p.url);
 });
 
 /// Calculate profile completeness

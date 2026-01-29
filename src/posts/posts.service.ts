@@ -1,0 +1,519 @@
+/// 📱 GIGMATCH POSTS SERVICE
+///
+/// Business logic for Instagram-style posts
+
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { Post, PostDocument } from '../schemas/post.schema';
+import { User, UserDocument } from '../schemas/user.schema';
+import {
+  CreatePostDto,
+  UpdatePostDto,
+  CreateCommentDto,
+  FeedQueryDto,
+} from './dto';
+
+@Injectable()
+export class PostsService {
+  private readonly logger = new Logger(PostsService.name);
+
+  constructor(
+    @InjectModel(Post.name) private postModel: Model<PostDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+  ) {}
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CREATE POST
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async create(userId: string, dto: CreatePostDto): Promise<Post> {
+    this.logger.log(`posts:create userId=${userId}`);
+
+    // Get user to determine artist/venue profile
+    const user = await this.userModel
+      .findById(userId)
+      .populate('artistProfile')
+      .populate('venueProfile');
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Extract hashtags from caption if not provided
+    let hashtags = dto.hashtags || [];
+    if (dto.caption) {
+      const captionHashtags =
+        dto.caption.match(/#[\w]+/g)?.map((h) => h.slice(1).toLowerCase()) ||
+        [];
+      hashtags = [...new Set([...hashtags, ...captionHashtags])];
+    }
+
+    // Convert mention strings to ObjectIds
+    const mentions = dto.mentions?.map((id) => new Types.ObjectId(id)) || [];
+
+    const post = new this.postModel({
+      userId: new Types.ObjectId(userId),
+      artistId: user.artistProfile
+        ? new Types.ObjectId(user.artistProfile.toString())
+        : undefined,
+      venueId: user.venueProfile
+        ? new Types.ObjectId(user.venueProfile.toString())
+        : undefined,
+      caption: dto.caption,
+      media: dto.media.map((m, i) => ({ ...m, order: m.order ?? i })),
+      hashtags,
+      mentions,
+      locationName: dto.location?.name,
+      location:
+        dto.location?.longitude && dto.location?.latitude
+          ? {
+              type: 'Point',
+              coordinates: [dto.location.longitude, dto.location.latitude],
+            }
+          : undefined,
+      commentsDisabled: dto.commentsDisabled ?? false,
+      likesHidden: dto.likesHidden ?? false,
+      trendingScore: 0,
+    });
+
+    await post.save();
+
+    return this.findById(post._id.toString(), userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GET FEED
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async getFeed(
+    userId: string,
+    query: FeedQueryDto,
+  ): Promise<{ posts: Post[]; hasMore: boolean; total: number }> {
+    const { page = 1, limit = 20, sort = 'trending', hashtag } = query;
+    const skip = (page - 1) * limit;
+
+    this.logger.log(`posts:feed userId=${userId} page=${page} sort=${sort}`);
+
+    // Build query
+    const filter: Record<string, unknown> = { status: 'active' };
+
+    if (hashtag) {
+      filter.hashtags = hashtag.toLowerCase();
+    }
+
+    if (query.userId) {
+      filter.userId = new Types.ObjectId(query.userId);
+    }
+
+    // Build sort
+    let sortQuery: Record<string, 1 | -1>;
+    switch (sort) {
+      case 'trending':
+        sortQuery = { trendingScore: -1, createdAt: -1 };
+        break;
+      case 'latest':
+        sortQuery = { createdAt: -1 };
+        break;
+      case 'following':
+        // For now, same as trending. Later: filter by followed users
+        sortQuery = { createdAt: -1 };
+        break;
+      default:
+        sortQuery = { trendingScore: -1, createdAt: -1 };
+    }
+
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find(filter)
+        .sort(sortQuery)
+        .skip(skip)
+        .limit(limit + 1)
+        .populate({
+          path: 'userId',
+          select: 'fullName role artistProfile venueProfile',
+          populate: [
+            {
+              path: 'artistProfile',
+              select: 'profilePhoto stageName displayName isVerified',
+            },
+            {
+              path: 'venueProfile',
+              select: 'profilePhotoUrl name isVerified',
+            },
+          ],
+        })
+        .lean(),
+      this.postModel.countDocuments(filter),
+    ]);
+
+    const hasMore = posts.length > limit;
+    const resultPosts = hasMore ? posts.slice(0, limit) : posts;
+
+    // Add isLiked and isSaved flags for current user
+    const userObjectId = new Types.ObjectId(userId);
+    const enrichedPosts = resultPosts.map((post) => ({
+      ...post,
+      author: post.userId,
+      isLiked: (post.likes as Types.ObjectId[]).some((id) =>
+        id.equals(userObjectId),
+      ),
+      isSaved: (post.savedBy as Types.ObjectId[]).some((id) =>
+        id.equals(userObjectId),
+      ),
+    }));
+
+    return { posts: enrichedPosts as unknown as Post[], hasMore, total };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GET SINGLE POST
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async findById(postId: string, userId?: string): Promise<Post> {
+    const post = await this.postModel
+      .findById(postId)
+      .populate({
+        path: 'userId',
+        select: 'fullName role artistProfile venueProfile',
+        populate: [
+          {
+            path: 'artistProfile',
+            select: 'profilePhoto stageName displayName isVerified',
+          },
+          {
+            path: 'venueProfile',
+            select: 'profilePhotoUrl name isVerified',
+          },
+        ],
+      })
+      .populate({
+        path: 'comments.userId',
+        select: 'fullName role artistProfile venueProfile',
+        populate: [
+          { path: 'artistProfile', select: 'profilePhoto stageName' },
+          { path: 'venueProfile', select: 'profilePhotoUrl name' },
+        ],
+      })
+      .lean();
+
+    if (!post || post.status === 'deleted') {
+      throw new NotFoundException('Post not found');
+    }
+
+    // Add user-specific flags
+    if (userId) {
+      const userObjectId = new Types.ObjectId(userId);
+      return {
+        ...post,
+        author: post.userId,
+        isLiked: (post.likes as Types.ObjectId[]).some((id) =>
+          id.equals(userObjectId),
+        ),
+        isSaved: (post.savedBy as Types.ObjectId[]).some((id) =>
+          id.equals(userObjectId),
+        ),
+      } as unknown as Post;
+    }
+
+    return { ...post, author: post.userId } as unknown as Post;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // UPDATE POST
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async update(
+    postId: string,
+    userId: string,
+    dto: UpdatePostDto,
+  ): Promise<Post> {
+    const post = await this.postModel.findById(postId);
+
+    if (!post || post.status === 'deleted') {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.userId.toString() !== userId) {
+      throw new ForbiddenException('Cannot edit this post');
+    }
+
+    // Extract hashtags from caption if caption is updated
+    let hashtags = dto.hashtags;
+    if (dto.caption && !dto.hashtags) {
+      hashtags =
+        dto.caption.match(/#[\w]+/g)?.map((h) => h.slice(1).toLowerCase()) ||
+        [];
+    }
+
+    Object.assign(post, {
+      ...(dto.caption !== undefined && { caption: dto.caption }),
+      ...(hashtags && { hashtags }),
+      ...(dto.commentsDisabled !== undefined && {
+        commentsDisabled: dto.commentsDisabled,
+      }),
+      ...(dto.likesHidden !== undefined && { likesHidden: dto.likesHidden }),
+      ...(dto.isPinned !== undefined && { isPinned: dto.isPinned }),
+    });
+
+    await post.save();
+    return this.findById(postId, userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DELETE POST
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async delete(postId: string, userId: string): Promise<void> {
+    const post = await this.postModel.findById(postId);
+
+    if (!post || post.status === 'deleted') {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.userId.toString() !== userId) {
+      throw new ForbiddenException('Cannot delete this post');
+    }
+
+    post.status = 'deleted';
+    await post.save();
+
+    this.logger.log(`posts:deleted postId=${postId} by=${userId}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIKE / UNLIKE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async toggleLike(
+    postId: string,
+    userId: string,
+  ): Promise<{ liked: boolean; likeCount: number }> {
+    const userObjectId = new Types.ObjectId(userId);
+    const post = await this.postModel.findById(postId);
+
+    if (!post || post.status !== 'active') {
+      throw new NotFoundException('Post not found');
+    }
+
+    const alreadyLiked = post.likes.some((id) => id.equals(userObjectId));
+
+    if (alreadyLiked) {
+      // Unlike
+      post.likes = post.likes.filter((id) => !id.equals(userObjectId));
+      post.likeCount = Math.max(0, post.likeCount - 1);
+    } else {
+      // Like
+      post.likes.push(userObjectId);
+      post.likeCount = post.likeCount + 1;
+    }
+
+    // Update trending score
+    this.updateTrendingScore(post);
+
+    await post.save();
+
+    return { liked: !alreadyLiked, likeCount: post.likeCount };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SAVE / UNSAVE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async toggleSave(
+    postId: string,
+    userId: string,
+  ): Promise<{ saved: boolean }> {
+    const userObjectId = new Types.ObjectId(userId);
+    const post = await this.postModel.findById(postId);
+
+    if (!post || post.status !== 'active') {
+      throw new NotFoundException('Post not found');
+    }
+
+    const alreadySaved = post.savedBy.some((id) => id.equals(userObjectId));
+
+    if (alreadySaved) {
+      post.savedBy = post.savedBy.filter((id) => !id.equals(userObjectId));
+    } else {
+      post.savedBy.push(userObjectId);
+    }
+
+    await post.save();
+
+    return { saved: !alreadySaved };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COMMENTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async addComment(
+    postId: string,
+    userId: string,
+    dto: CreateCommentDto,
+  ): Promise<Post> {
+    const post = await this.postModel.findById(postId);
+
+    if (!post || post.status !== 'active') {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.commentsDisabled) {
+      throw new BadRequestException('Comments are disabled for this post');
+    }
+
+    const comment = {
+      _id: new Types.ObjectId(),
+      userId: new Types.ObjectId(userId),
+      text: dto.text,
+      likes: [],
+      replies: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    post.comments.push(comment as never);
+    post.commentCount = post.comments.length;
+
+    // Update trending score
+    this.updateTrendingScore(post);
+
+    await post.save();
+
+    return this.findById(postId, userId);
+  }
+
+  async deleteComment(
+    postId: string,
+    commentId: string,
+    userId: string,
+  ): Promise<Post> {
+    const post = await this.postModel.findById(postId);
+
+    if (!post || post.status !== 'active') {
+      throw new NotFoundException('Post not found');
+    }
+
+    const commentIndex = post.comments.findIndex(
+      (c) => (c as unknown as { _id: Types.ObjectId })._id.toString() === commentId,
+    );
+
+    if (commentIndex === -1) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    const comment = post.comments[commentIndex];
+
+    // Check if user owns the comment or the post
+    if (
+      comment.userId.toString() !== userId &&
+      post.userId.toString() !== userId
+    ) {
+      throw new ForbiddenException('Cannot delete this comment');
+    }
+
+    post.comments.splice(commentIndex, 1);
+    post.commentCount = post.comments.length;
+
+    await post.save();
+
+    return this.findById(postId, userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // USER'S POSTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async getUserPosts(
+    targetUserId: string,
+    currentUserId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ posts: Post[]; hasMore: boolean; total: number }> {
+    const skip = (page - 1) * limit;
+
+    const [posts, total] = await Promise.all([
+      this.postModel
+        .find({ userId: new Types.ObjectId(targetUserId), status: 'active' })
+        .sort({ isPinned: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit + 1)
+        .populate({
+          path: 'userId',
+          select: 'fullName role artistProfile venueProfile',
+          populate: [
+            {
+              path: 'artistProfile',
+              select: 'profilePhoto stageName displayName isVerified',
+            },
+            {
+              path: 'venueProfile',
+              select: 'profilePhotoUrl name isVerified',
+            },
+          ],
+        })
+        .lean(),
+      this.postModel.countDocuments({
+        userId: new Types.ObjectId(targetUserId),
+        status: 'active',
+      }),
+    ]);
+
+    const hasMore = posts.length > limit;
+    const resultPosts = hasMore ? posts.slice(0, limit) : posts;
+
+    const userObjectId = new Types.ObjectId(currentUserId);
+    const enrichedPosts = resultPosts.map((post) => ({
+      ...post,
+      author: post.userId,
+      isLiked: (post.likes as Types.ObjectId[]).some((id) =>
+        id.equals(userObjectId),
+      ),
+      isSaved: (post.savedBy as Types.ObjectId[]).some((id) =>
+        id.equals(userObjectId),
+      ),
+    }));
+
+    return { posts: enrichedPosts as unknown as Post[], hasMore, total };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TRENDING SCORE CALCULATION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private updateTrendingScore(post: PostDocument): void {
+    // Weighted score: likes + comments*2 + shares*3 + views*0.01
+    // Time decay: score * (1 / (hours_since_post + 2)^1.5)
+    const hoursSincePost =
+      (Date.now() - new Date(post['createdAt']).getTime()) / (1000 * 60 * 60);
+
+    const rawScore =
+      post.likeCount +
+      post.commentCount * 2 +
+      post.shareCount * 3 +
+      post.viewCount * 0.01;
+
+    // Time decay factor
+    const decayFactor = 1 / Math.pow(hoursSincePost + 2, 1.5);
+
+    post.trendingScore = Math.round(rawScore * decayFactor * 1000);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INCREMENT VIEW COUNT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async incrementViewCount(postId: string): Promise<void> {
+    await this.postModel.updateOne(
+      { _id: new Types.ObjectId(postId) },
+      { $inc: { viewCount: 1 } },
+    );
+  }
+}
