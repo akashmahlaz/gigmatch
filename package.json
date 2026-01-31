@@ -18,7 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "create-admin": "ts-node -r tsconfig-paths/register scripts/create-admin.ts"
+    "create-admin": "ts-node -r tsconfig-paths/register scripts/create-admin.ts",
+    "db:reset": "node scripts/reset-database.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -42,6 +43,7 @@
     "google-auth-library": "^10.5.0",
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^3.2.1",
+    "mongodb": "^7.0.0",
     "mongoose": "^9.1.1",
     "mongoose-geojson-schema": "^3.1.1",
     "passport": "^0.7.0",

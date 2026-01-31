@@ -6,7 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Venue, VenueDocument } from './schemas/venue.schema';
 import { User, UserDocument } from '../schemas/user.schema';
 import { UpdateVenueDto, SearchVenuesDto } from './dto/venue.dto';
@@ -23,7 +23,11 @@ export class VenuesService {
    * If venue doesn't exist, create a basic one (handles edge cases)
    */
   async findByUserId(userId: string): Promise<VenueDocument> {
-    let venue = await this.venueModel.findOne({ userId }).exec();
+    // Search for venue with userId as either string or ObjectId for backward compatibility
+    const userIdObj = new Types.ObjectId(userId);
+    let venue = await this.venueModel.findOne({
+      $or: [{ userId: userIdObj }, { userId }],
+    }).exec();
 
     // If venue doesn't exist, create a basic profile
     if (!venue) {
@@ -32,9 +36,9 @@ export class VenuesService {
         throw new NotFoundException('User not found');
       }
 
-      // Create basic venue profile
+      // Create basic venue profile - store userId as ObjectId
       venue = await this.venueModel.create({
-        userId,
+        userId: userIdObj,
         venueName: user.fullName || 'Venue',
         venueType: 'bar',
         location: {
@@ -190,7 +194,7 @@ export class VenuesService {
 
         // Create new venue profile with provided data (schema-safe fields only)
         const createData: Record<string, any> = {
-          userId,
+          userId: new Types.ObjectId(userId),
           venueName: updateData?.venueName || user.fullName || 'Venue',
           venueType: updateData?.venueType || 'bar',
           location: updateData?.location || {
@@ -199,7 +203,7 @@ export class VenuesService {
           },
           isProfileVisible: false,
           hasCompletedSetup: false,
-          isAcceptingBookings: false,
+          isOpenForBookings: false,
         };
 
         if (updateData?.description)
@@ -235,7 +239,7 @@ export class VenuesService {
       const updateFields: Record<string, any> = {
         hasCompletedSetup: true,
         isProfileVisible: true,
-        isAcceptingBookings: true,
+        isOpenForBookings: true,
       };
 
       if (updateData) {
@@ -460,7 +464,7 @@ export class VenuesService {
     const filter: Record<string, any> = {
       isProfileVisible: true,
       hasCompletedSetup: true,
-      isAcceptingBookings: true,
+      isOpenForBookings: true,
       _id: { $nin: excludeIds },
     };
 

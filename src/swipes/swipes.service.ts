@@ -295,15 +295,14 @@ export class SwipesService {
     }
 
     // Build match query for finding gigs
+    // Note: Gig schema uses 'open' status for discoverable gigs
     const matchQuery: any = {
       status: 'open',
-      isActive: true,
     };
 
     // Build a separate count query without $near (which doesn't work with countDocuments)
     const countQuery: any = {
       status: 'open',
-      isActive: true,
     };
 
     // Genre matching
@@ -316,13 +315,14 @@ export class SwipesService {
     }
 
     // Location-based filtering (only if coordinates are provided)
+    // Note: The Gig schema has GeoJSON at 'location.geo', not 'location' directly
     if (
       query.latitude != null &&
       query.longitude != null &&
       query.radiusMiles != null
     ) {
       // Use $near for find() - provides sorted results
-      matchQuery.location = {
+      matchQuery['location.geo'] = {
         $near: {
           $geometry: {
             type: 'Point',
@@ -332,7 +332,7 @@ export class SwipesService {
         },
       };
       // Use $geoWithin for count() - works with countDocuments
-      countQuery.location = {
+      countQuery['location.geo'] = {
         $geoWithin: {
           $centerSphere: [
             [query.longitude, query.latitude],
@@ -354,7 +354,7 @@ export class SwipesService {
         (artist.location as any)?.travelRadius ??
         50;
       // Use $near for find() - provides sorted results
-      matchQuery.location = {
+      matchQuery['location.geo'] = {
         $near: {
           $geometry: {
             type: 'Point',
@@ -364,7 +364,7 @@ export class SwipesService {
         },
       };
       // Use $geoWithin for count() - works with countDocuments
-      countQuery.location = {
+      countQuery['location.geo'] = {
         $geoWithin: {
           $centerSphere: [
             artist.location.coordinates,

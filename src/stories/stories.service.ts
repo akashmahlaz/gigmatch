@@ -82,6 +82,27 @@ export class StoriesService {
     const expiryHours = dto.expiryHours ?? 24;
     const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
 
+    // Get artistId and venueId properly (handle both populated and non-populated cases)
+    let artistId: Types.ObjectId | undefined;
+    let venueId: Types.ObjectId | undefined;
+
+    if (user.artistProfile) {
+      // Check if it's a populated document or just an ObjectId
+      if (typeof user.artistProfile === 'object' && user.artistProfile._id) {
+        artistId = new Types.ObjectId(user.artistProfile._id.toString());
+      } else {
+        artistId = new Types.ObjectId(user.artistProfile.toString());
+      }
+    }
+
+    if (user.venueProfile) {
+      if (typeof user.venueProfile === 'object' && user.venueProfile._id) {
+        venueId = new Types.ObjectId(user.venueProfile._id.toString());
+      } else {
+        venueId = new Types.ObjectId(user.venueProfile.toString());
+      }
+    }
+
     // Check if user already has an active story
     const existingStory = await this.storyModel.findOne({
       userId: new Types.ObjectId(userId),
@@ -108,12 +129,8 @@ export class StoriesService {
     // Create new story
     const story = new this.storyModel({
       userId: new Types.ObjectId(userId),
-      artistId: user.artistProfile
-        ? new Types.ObjectId(user.artistProfile.toString())
-        : undefined,
-      venueId: user.venueProfile
-        ? new Types.ObjectId(user.venueProfile.toString())
-        : undefined,
+      artistId,
+      venueId,
       items: dto.items.map((item) => ({
         ...item,
         mentions: item.mentions?.map((id) => new Types.ObjectId(id)) || [],
@@ -124,7 +141,13 @@ export class StoriesService {
       expiresAt,
     });
 
-    await story.save();
+    try {
+      await story.save();
+      this.logger.log(`stories:created id=${story._id}`);
+    } catch (error) {
+      this.logger.error(`stories:create error: ${error.message}`, error.stack);
+      throw error;
+    }
 
     return this.findById(story._id.toString(), userId);
   }
@@ -159,11 +182,11 @@ export class StoriesService {
         populate: [
           {
             path: 'artistProfile',
-            select: 'profilePhoto stageName displayName isVerified',
+            select: '_id profilePhoto stageName displayName isVerified',
           },
           {
             path: 'venueProfile',
-            select: 'profilePhotoUrl name isVerified',
+            select: '_id profilePhotoUrl name isVerified',
           },
         ],
       })
@@ -226,11 +249,11 @@ export class StoriesService {
         populate: [
           {
             path: 'artistProfile',
-            select: 'profilePhoto stageName displayName isVerified',
+            select: '_id profilePhoto stageName displayName isVerified',
           },
           {
             path: 'venueProfile',
-            select: 'profilePhotoUrl name isVerified',
+            select: '_id profilePhotoUrl name isVerified',
           },
         ],
       })
@@ -260,11 +283,11 @@ export class StoriesService {
         populate: [
           {
             path: 'artistProfile',
-            select: 'profilePhoto stageName displayName isVerified',
+            select: '_id profilePhoto stageName displayName isVerified',
           },
           {
             path: 'venueProfile',
-            select: 'profilePhotoUrl name isVerified',
+            select: '_id profilePhotoUrl name isVerified',
           },
         ],
       })

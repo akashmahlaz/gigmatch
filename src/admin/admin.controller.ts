@@ -137,4 +137,15 @@ export class AdminController {
   async getSubscriptions(@Query() query: any) {
     return this.adminService.getSubscriptions(query);
   }
+
+  // ⚠️ DANGER ZONE - Development Only
+  @Delete('reset-database')
+  @ApiOperation({ 
+    summary: '⚠️ DELETE ALL USERS (Dev Only)', 
+    description: 'Removes all users, artists, venues, and related data. Use with extreme caution!' 
+  })
+  @HttpCode(HttpStatus.OK)
+  async resetDatabase() {
+    return this.adminService.resetDatabase();
+  }
 }

@@ -376,6 +376,8 @@ export class AuthService {
    * Login user
    */
   async login(user: UserDocument): Promise<AuthResponse> {
+    this.logger.log(`🔐 User login: ${user.email} (${user.role}) - ID: ${user._id}`);
+    
     const tokens = await this.generateTokens(user);
 
     // Update refresh token and last login
@@ -391,10 +393,12 @@ export class AuthService {
       const artist = await this.artistModel.findById(user.artistProfile).exec();
       profileId = artist?._id.toString();
       hasCompletedSetup = artist?.hasCompletedSetup ?? false;
+      this.logger.log(`  └─ Artist Profile: ${profileId}, Setup: ${hasCompletedSetup}`);
     } else if (user.role === 'venue' && user.venueProfile) {
       const venue = await this.venueModel.findById(user.venueProfile).exec();
       profileId = venue?._id.toString();
       hasCompletedSetup = venue?.hasCompletedSetup ?? false;
+      this.logger.log(`  └─ Venue Profile: ${profileId}, Setup: ${hasCompletedSetup}`);
     }
 
     return {

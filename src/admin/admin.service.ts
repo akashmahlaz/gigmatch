@@ -469,4 +469,52 @@ export class AdminService {
       },
     };
   }
+
+  // ⚠️ DANGER ZONE - Reset Database (Development Only)
+  async resetDatabase() {
+    console.log('🚨 ========================================');
+    console.log('🚨 RESETTING DATABASE - DELETING ALL DATA');
+    console.log('🚨 ========================================');
+
+    const startTime = Date.now();
+
+    try {
+      // Delete all users and related data
+      const [
+        deletedUsers,
+        deletedArtists,
+        deletedVenues,
+        deletedMatches,
+        deletedSubscriptions,
+      ] = await Promise.all([
+        this.userModel.deleteMany({}),
+        this.artistModel.deleteMany({}),
+        this.venueModel.deleteMany({}),
+        this.matchModel.deleteMany({}),
+        this.subscriptionModel.deleteMany({}),
+      ]);
+
+      const elapsed = Date.now() - startTime;
+
+      const result = {
+        success: true,
+        message: '✅ Database reset complete',
+        deleted: {
+          users: deletedUsers.deletedCount,
+          artists: deletedArtists.deletedCount,
+          venues: deletedVenues.deletedCount,
+          matches: deletedMatches.deletedCount,
+          subscriptions: deletedSubscriptions.deletedCount,
+        },
+        elapsed: `${elapsed}ms`,
+        timestamp: new Date().toISOString(),
+      };
+
+      console.log('✅ Database reset complete:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Database reset failed:', error);
+      throw new BadRequestException('Failed to reset database');
+    }
+  }
 }

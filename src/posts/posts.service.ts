@@ -46,6 +46,27 @@ export class PostsService {
       throw new NotFoundException('User not found');
     }
 
+    // Get artistId and venueId properly (handle both populated and non-populated cases)
+    let artistId: Types.ObjectId | undefined;
+    let venueId: Types.ObjectId | undefined;
+
+    if (user.artistProfile) {
+      // Check if it's a populated document or just an ObjectId
+      if (typeof user.artistProfile === 'object' && user.artistProfile._id) {
+        artistId = new Types.ObjectId(user.artistProfile._id.toString());
+      } else {
+        artistId = new Types.ObjectId(user.artistProfile.toString());
+      }
+    }
+
+    if (user.venueProfile) {
+      if (typeof user.venueProfile === 'object' && user.venueProfile._id) {
+        venueId = new Types.ObjectId(user.venueProfile._id.toString());
+      } else {
+        venueId = new Types.ObjectId(user.venueProfile.toString());
+      }
+    }
+
     // Extract hashtags from caption if not provided
     let hashtags = dto.hashtags || [];
     if (dto.caption) {
@@ -60,12 +81,8 @@ export class PostsService {
 
     const post = new this.postModel({
       userId: new Types.ObjectId(userId),
-      artistId: user.artistProfile
-        ? new Types.ObjectId(user.artistProfile.toString())
-        : undefined,
-      venueId: user.venueProfile
-        ? new Types.ObjectId(user.venueProfile.toString())
-        : undefined,
+      artistId,
+      venueId,
       caption: dto.caption,
       media: dto.media.map((m, i) => ({ ...m, order: m.order ?? i })),
       hashtags,
@@ -141,11 +158,11 @@ export class PostsService {
           populate: [
             {
               path: 'artistProfile',
-              select: 'profilePhoto stageName displayName isVerified',
+              select: '_id profilePhoto stageName displayName isVerified',
             },
             {
               path: 'venueProfile',
-              select: 'profilePhotoUrl name isVerified',
+              select: '_id profilePhotoUrl name isVerified',
             },
           ],
         })
@@ -155,6 +172,19 @@ export class PostsService {
 
     const hasMore = posts.length > limit;
     const resultPosts = hasMore ? posts.slice(0, limit) : posts;
+
+    // DEBUG: Log the first post's author structure
+    if (resultPosts.length > 0) {
+      const firstPost = resultPosts[0] as any;
+      this.logger.debug(`posts:feed DEBUG - First post author structure:`);
+      this.logger.debug(`  userId (raw): ${JSON.stringify(firstPost.userId)}`);
+      if (firstPost.userId?.artistProfile) {
+        this.logger.debug(`  artistProfile._id: ${firstPost.userId.artistProfile._id}`);
+        this.logger.debug(`  artistProfile keys: ${Object.keys(firstPost.userId.artistProfile)}`);
+      }
+      this.logger.debug(`  post.artistId: ${firstPost.artistId}`);
+      this.logger.debug(`  post.venueId: ${firstPost.venueId}`);
+    }
 
     // Add isLiked and isSaved flags for current user
     const userObjectId = new Types.ObjectId(userId);
@@ -185,11 +215,11 @@ export class PostsService {
         populate: [
           {
             path: 'artistProfile',
-            select: 'profilePhoto stageName displayName isVerified',
+            select: '_id profilePhoto stageName displayName isVerified',
           },
           {
             path: 'venueProfile',
-            select: 'profilePhotoUrl name isVerified',
+            select: '_id profilePhotoUrl name isVerified',
           },
         ],
       })
@@ -451,11 +481,11 @@ export class PostsService {
           populate: [
             {
               path: 'artistProfile',
-              select: 'profilePhoto stageName displayName isVerified',
+              select: '_id profilePhoto stageName displayName isVerified',
             },
             {
               path: 'venueProfile',
-              select: 'profilePhotoUrl name isVerified',
+              select: '_id profilePhotoUrl name isVerified',
             },
           ],
         })

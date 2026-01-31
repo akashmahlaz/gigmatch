@@ -71,6 +71,9 @@ importers:
       jwks-rsa:
         specifier: ^3.2.1
         version: 3.2.2
+      mongodb:
+        specifier: ^7.0.0
+        version: 7.0.0
       mongoose:
         specifier: ^9.1.1
         version: 9.1.5

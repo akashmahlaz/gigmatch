@@ -37,10 +37,38 @@ export class GigsService {
    * - Copies + stores exact location (GeoJSON Point) for geo discovery ($near)
    */
   async createGig(venueUserId: string, dto: CreateGigDto): Promise<GigDocument> {
+    // Debug: Log what we're searching for
+    console.log('🔍 createGig - Searching for venue:', {
+      venueId: dto.venueId,
+      userId: venueUserId,
+    });
+
     // Validate venue user + venue profile ownership
+    // Note: userId may be stored as string or ObjectId depending on when venue was created
+    // Use $or to handle both cases for backward compatibility
+    const venueUserIdObj = new Types.ObjectId(venueUserId);
     const venue = await this.venueModel
-      .findOne({ _id: dto.venueId, user: new Types.ObjectId(venueUserId) })
+      .findOne({
+        _id: dto.venueId,
+        $or: [
+          { userId: venueUserIdObj },
+          { userId: venueUserId },
+        ],
+      })
       .exec();
+
+    // Debug: Log if venue was found
+    if (venue) {
+      console.log('✅ Venue found:', { _id: venue._id, userId: venue.userId });
+    } else {
+      // Try to find the venue without userId constraint to debug
+      const venueById = await this.venueModel.findById(dto.venueId).exec();
+      console.log('❌ Venue NOT found with userId match. Venue by ID only:', venueById ? {
+        _id: venueById._id,
+        userId: venueById.userId,
+        expectedUserId: venueUserId,
+      } : 'NOT FOUND');
+    }
 
     if (!venue) {
       throw new ForbiddenException(
@@ -149,8 +177,15 @@ export class GigsService {
     const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
     const skip = (page - 1) * limit;
 
+    // Handle both string and ObjectId userId for backward compatibility
+    const venueUserIdObj = new Types.ObjectId(venueUserId);
     const venue = await this.venueModel
-      .findOne({ userId: new Types.ObjectId(venueUserId) })
+      .findOne({
+        $or: [
+          { userId: venueUserIdObj },
+          { userId: venueUserId },
+        ],
+      })
       .exec();
 
     if (!venue) {

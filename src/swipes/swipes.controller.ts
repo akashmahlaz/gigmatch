@@ -17,7 +17,6 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  ParseUUIDPipe,
   BadRequestException,
 } from '@nestjs/common';
 import {
@@ -60,7 +59,7 @@ export class SwipesController {
   })
   async swipe(
     @CurrentUser() user: User,
-    @Param('targetId', ParseUUIDPipe) targetId: string,
+    @Param('targetId') targetId: string,
     @Body() dto: CreateSwipeDto,
   ) {
     // Use body targetId or param targetId
@@ -77,7 +76,7 @@ export class SwipesController {
         success: true,
         action: 'match',
         isMatch: true,
-        swipeId: result.swipe._id.toString(),
+        swipeId: (result.swipe as any)._id?.toString() ?? '',
         message: "🎉 It's a match! You can now start a conversation.",
         match: result.match,
       };
@@ -86,7 +85,7 @@ export class SwipesController {
     return {
       success: true,
       isMatch: false,
-      swipeId: result.swipe._id.toString(),
+      swipeId: (result.swipe as any)._id?.toString() ?? '',
       action: result.result === 'liked' ? 'saved' : 'skipped',
       message:
         result.result === 'liked' ? 'Saved to your favorites' : 'Skipped',
@@ -101,7 +100,7 @@ export class SwipesController {
   @ApiResponse({ status: 404, description: 'Swipe not found' })
   async undoSwipe(
     @CurrentUser() user: User,
-    @Param('swipeId', ParseUUIDPipe) swipeId: string,
+    @Param('swipeId') swipeId: string,
   ) {
     const dto: UndoSwipeDto = { swipeId };
     await this.swipesService.undoSwipe(user._id.toString(), dto);
@@ -204,8 +203,8 @@ export class SwipesController {
     // Backend returns 'gigs' for artists, 'artists' for venues
     // Frontend expects 'profiles' with hasMore for pagination
     const profiles = feed.gigs ?? feed.artists ?? [];
-    const limit = query.limit ?? 20;
-    const hasMore = feed.total > (feed.page ?? 1) * limit;
+    const pageLimit = query.limit ?? 20;
+    const hasMore = feed.total > (feed.page ?? 1) * pageLimit;
 
     return {
       success: true,
@@ -214,7 +213,7 @@ export class SwipesController {
       artists: feed.artists,
       total: feed.total,
       page: feed.page,
-      limit,
+      limit: pageLimit,
       hasMore,
     };
   }
