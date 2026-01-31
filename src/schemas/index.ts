@@ -4,8 +4,8 @@ export type { Artist, ArtistDocument, AvailabilitySlot, AvailabilityStatus } fro
 export { ArtistSchema } from './artist.schema';
 export type { Venue, VenueDocument, VenueType, ContactPerson } from './venue.schema';
 export { VenueSchema } from './venue.schema';
-export type { Gig, GigDocument } from '../gigs/schemas/gig.schema';
-export { GigSchema } from '../gigs/schemas/gig.schema';
+export type { Gig, GigDocument } from './gig.schema';
+export { GigSchema } from './gig.schema';
 export * from './swipe.schema';
 export * from './match.schema';
 export * from './message.schema';

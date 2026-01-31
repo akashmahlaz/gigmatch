@@ -39,7 +39,7 @@ import {
 import { Match, MatchDocument } from '../matches/schemas/match.schema';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
-import { Gig, GigDocument } from '../gigs/schemas/gig.schema';
+import { Gig, GigDocument } from '../schemas/gig.schema';
 
 // DTOs
 import {
@@ -424,7 +424,7 @@ export class SwipesService {
         .sort({ createdAt: -1, date: 1 })
         .skip(skip)
         .limit(limit)
-        .populate('venueId', 'venueName location profilePhotoUrl')
+        .populate('venue', 'venueName venueType coverPhoto location')
         .lean(),
       this.gigModel.countDocuments(countQuery),
     ]);
@@ -606,9 +606,9 @@ export class SwipesService {
     const maxScore = 100;
 
     // Genre match score (0-30 points)
-    if (artist.genres && gig.genres) {
+    if (artist.genres && gig.requiredGenres) {
       const matchingGenres = artist.genres.filter((g: string) =>
-        gig.genres.includes(g),
+        gig.requiredGenres.includes(g),
       );
       const genreScore =
         (matchingGenres.length / Math.max(artist.genres.length, 1)) * 30;
@@ -616,12 +616,12 @@ export class SwipesService {
     }
 
     // Distance score (0-25 points)
-    if (gig.location?.coordinates && artist.location?.coordinates) {
+    if (gig.location?.geo?.coordinates && artist.location?.coordinates) {
       const distance = this.calculateDistance(
         artist.location.coordinates[1],
         artist.location.coordinates[0],
-        gig.location.coordinates[1],
-        gig.location.coordinates[0],
+        gig.location.geo.coordinates[1],
+        gig.location.geo.coordinates[0],
       );
       const maxTravel = artist.travelRadiusMiles ?? 100;
       const distanceScore = Math.max(0, 25 - (distance / maxTravel) * 25);
@@ -629,15 +629,15 @@ export class SwipesService {
     }
 
     // Budget score (0-20 points)
-    if (gig.budgetMax && artist.minPrice) {
-      const budgetRatio = Math.min(gig.budgetMax / artist.minPrice, 2);
+    if (gig.budget && artist.minPrice) {
+      const budgetRatio = Math.min(gig.budget / artist.minPrice, 2);
       const budgetScore = Math.min(budgetRatio * 10, 20);
       score += budgetScore;
     }
 
     // Venue rating bonus (0-15 points)
-    if (gig.venueId && gig.venueId.reviewStats) {
-      const avgRating = gig.venueId.reviewStats.averageRating ?? 0;
+    if (gig.venue && (gig.venue as any).reviewStats) {
+      const avgRating = (gig.venue as any).reviewStats.averageRating ?? 0;
       score += Math.min(avgRating * 3, 15);
     }
 

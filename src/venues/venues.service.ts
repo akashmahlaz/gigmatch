@@ -23,11 +23,18 @@ export class VenuesService {
    * If venue doesn't exist, create a basic one (handles edge cases)
    */
   async findByUserId(userId: string): Promise<VenueDocument> {
+    console.log('🏢 [VenueService] findByUserId called for:', userId);
     // Search for venue with userId as either string or ObjectId for backward compatibility
     const userIdObj = new Types.ObjectId(userId);
     let venue = await this.venueModel.findOne({
       $or: [{ userId: userIdObj }, { userId }],
     }).exec();
+    
+    if (venue) {
+      console.log('🏢 [VenueService] Found existing venue:', venue.venueName);
+      console.log('  - hasCompletedSetup:', venue.hasCompletedSetup);
+      console.log('  - isOpenForBookings:', venue.isOpenForBookings);
+    }
 
     // If venue doesn't exist, create a basic profile
     if (!venue) {
@@ -47,6 +54,7 @@ export class VenuesService {
         },
         isProfileVisible: false,
         hasCompletedSetup: false,
+        isOpenForBookings: false,
       });
 
       // Update user with venue reference
@@ -73,7 +81,7 @@ export class VenuesService {
    */
   async findPublicProfile(id: string): Promise<VenueDocument> {
     const venue = await this.venueModel.findById(id).exec();
-    if (!venue || !venue.isProfileVisible) {
+    if (!venue) {
       throw new NotFoundException('Venue not found');
     }
 
@@ -308,6 +316,8 @@ export class VenuesService {
         );
       }
 
+      console.log('🏢 [VenueService] Updating venue with fields:', JSON.stringify(updateFields, null, 2));
+      
       const updated = await this.venueModel
         .findByIdAndUpdate(venue._id, updateFields, { new: true })
         .exec();
@@ -317,6 +327,11 @@ export class VenuesService {
           'Failed to complete venue setup',
         );
       }
+
+      console.log('🏢 [VenueService] Updated venue flags:');
+      console.log('  - hasCompletedSetup:', updated.hasCompletedSetup);
+      console.log('  - isOpenForBookings:', updated.isOpenForBookings);
+      console.log('  - isProfileVisible:', updated.isProfileVisible);
 
       // Also update user's isProfileComplete flag
       await this.userModel.findByIdAndUpdate(userId, {

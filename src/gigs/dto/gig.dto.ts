@@ -224,6 +224,140 @@ export class CreateGigDto {
   status?: 'draft' | 'open';
 }
 
+export class UpdateGigDto {
+  @ApiPropertyOptional({ description: 'Gig title' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  title?: string;
+
+  @ApiPropertyOptional({ description: 'Gig description' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+
+  @ApiPropertyOptional({ description: 'Gig date (ISO 8601)' })
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @ApiPropertyOptional({ description: 'Start time (e.g. "19:30")' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  startTime?: string;
+
+  @ApiPropertyOptional({ description: 'End time (e.g. "22:00")' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  endTime?: string;
+
+  @ApiPropertyOptional({ description: 'Duration in minutes' })
+  @IsOptional()
+  @IsInt()
+  @Min(15)
+  @Max(24 * 60)
+  durationMinutes?: number;
+
+  @ApiPropertyOptional({ description: 'Number of sets' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  numberOfSets?: number;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(15)
+  @ArrayUnique()
+  @IsString({ each: true })
+  requiredGenres?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  specificRequirements?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  artistsNeeded?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  budget?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  currency?: string;
+
+  @ApiPropertyOptional({ enum: ['fixed', 'negotiable', 'per_hour'] })
+  @IsOptional()
+  @IsEnum(['fixed', 'negotiable', 'per_hour'])
+  paymentType?: 'fixed' | 'negotiable' | 'per_hour';
+
+  @ApiPropertyOptional({ type: GigLocationDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GigLocationDto)
+  location?: GigLocationDto;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isPublic?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  acceptingApplications?: boolean;
+
+  @ApiPropertyOptional({ type: GigPerksDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GigPerksDto)
+  perks?: GigPerksDto;
+
+  @ApiPropertyOptional({
+    enum: ['draft', 'open', 'filled', 'completed', 'cancelled'],
+  })
+  @IsOptional()
+  @IsEnum(['draft', 'open', 'filled', 'completed', 'cancelled'])
+  status?: string;
+}
+
+export class ApplyToGigDto {
+  @ApiPropertyOptional({ description: 'Cover message from artist' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  message?: string;
+
+  @ApiPropertyOptional({ description: 'Proposed rate by artist' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  proposedRate?: number;
+}
+
+export class DeclineGigDto {
+  @ApiPropertyOptional({ description: 'Reason for declining' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
 export class DiscoverGigsDto {
   @ApiPropertyOptional({
     description:

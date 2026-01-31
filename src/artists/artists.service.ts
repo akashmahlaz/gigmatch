@@ -79,7 +79,7 @@ export class ArtistsService {
    */
   async findPublicProfile(id: string): Promise<ArtistDocument> {
     const artist = await this.artistModel.findById(id).exec();
-    if (!artist || !artist.isProfileVisible) {
+    if (!artist) {
       throw new NotFoundException('Artist not found');
     }
 

@@ -15,7 +15,7 @@ import { Booking, BookingSchema } from '../schemas/booking.schema';
 import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
 import { Venue, VenueSchema } from '../venues/schemas/venue.schema';
 import { Match, MatchSchema } from '../matches/schemas/match.schema';
-import { Gig, GigSchema } from '../gigs/schemas/gig.schema';
+import { Gig, GigSchema } from '../schemas/gig.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({

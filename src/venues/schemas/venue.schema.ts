@@ -845,7 +845,8 @@ VenueSchema.pre('save', function (this: VenueDocument) {
     (this as any).profileCompleteness = (
       this as any
     ).calculateProfileCompleteness();
-    this.hasCompletedSetup = this.profileCompleteness >= 80;
+    // ⚠️ DO NOT auto-set hasCompletedSetup here - it must be set explicitly via completeSetup() method
+    // this.hasCompletedSetup = this.profileCompleteness >= 80;
   }
 
   // Update search tags

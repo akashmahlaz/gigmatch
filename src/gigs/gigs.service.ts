@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -12,9 +13,14 @@ import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { User, UserDocument } from '../schemas/user.schema';
 
-import { CreateGigDto, DiscoverGigsDto } from './dto/gig.dto';
+import {
+  CreateGigDto,
+  UpdateGigDto,
+  ApplyToGigDto,
+  DiscoverGigsDto,
+} from './dto/gig.dto';
 
-type DiscoverResult<T> = {
+type PaginatedResult<T> = {
   items: T[];
   total: number;
   page: number;
@@ -30,45 +36,15 @@ export class GigsService {
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
   ) {}
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // VENUE OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════
+
   /**
-   * ✅ Venue creates a gig
-   * - Requires caller to be a venue user
-   * - Requires venue profile exists and matches dto.venueId
-   * - Copies + stores exact location (GeoJSON Point) for geo discovery ($near)
+   * Venue creates a gig
    */
   async createGig(venueUserId: string, dto: CreateGigDto): Promise<GigDocument> {
-    // Debug: Log what we're searching for
-    console.log('🔍 createGig - Searching for venue:', {
-      venueId: dto.venueId,
-      userId: venueUserId,
-    });
-
-    // Validate venue user + venue profile ownership
-    // Note: userId may be stored as string or ObjectId depending on when venue was created
-    // Use $or to handle both cases for backward compatibility
-    const venueUserIdObj = new Types.ObjectId(venueUserId);
-    const venue = await this.venueModel
-      .findOne({
-        _id: dto.venueId,
-        $or: [
-          { userId: venueUserIdObj },
-          { userId: venueUserId },
-        ],
-      })
-      .exec();
-
-    // Debug: Log if venue was found
-    if (venue) {
-      console.log('✅ Venue found:', { _id: venue._id, userId: venue.userId });
-    } else {
-      // Try to find the venue without userId constraint to debug
-      const venueById = await this.venueModel.findById(dto.venueId).exec();
-      console.log('❌ Venue NOT found with userId match. Venue by ID only:', venueById ? {
-        _id: venueById._id,
-        userId: venueById.userId,
-        expectedUserId: venueUserId,
-      } : 'NOT FOUND');
-    }
+    const venue = await this.findVenueByUserId(venueUserId, dto.venueId);
 
     if (!venue) {
       throw new ForbiddenException(
@@ -76,7 +52,6 @@ export class GigsService {
       );
     }
 
-    // Basic validation: must have coordinates
     if (!dto.location?.geoCoordinates || dto.location.geoCoordinates.length !== 2) {
       throw new BadRequestException(
         'Gig location geoCoordinates must be [longitude, latitude].',
@@ -91,7 +66,6 @@ export class GigsService {
       );
     }
 
-    // Enforce: venue must have completed setup to publish open gigs
     const status = dto.status ?? 'draft';
     if (status === 'open') {
       if (!venue.hasCompletedSetup || !venue.isProfileVisible) {
@@ -129,7 +103,6 @@ export class GigsService {
 
       status,
 
-      // Location
       location: {
         venueAddress: dto.location.venueAddress,
         city: dto.location.city,
@@ -153,11 +126,8 @@ export class GigsService {
         additionalPerks: dto.perks?.additionalPerks ?? [],
       },
 
-      // Stats
       viewCount: 0,
       applicationCount: 0,
-
-      // Defaults
       applications: [],
       bookedArtists: [],
     });
@@ -167,59 +137,154 @@ export class GigsService {
   }
 
   /**
-   * ✅ Venue list their gigs
+   * Venue updates a gig they own
+   */
+  async updateGig(
+    venueUserId: string,
+    gigId: string,
+    dto: UpdateGigDto,
+  ): Promise<GigDocument> {
+    const gig = await this.gigModel.findById(gigId).exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    if (gig.postedBy.toString() !== venueUserId) {
+      throw new ForbiddenException('You can only update your own gigs.');
+    }
+
+    const update: Record<string, any> = {};
+
+    if (dto.title !== undefined) update.title = dto.title;
+    if (dto.description !== undefined) update.description = dto.description;
+    if (dto.date !== undefined) update.date = new Date(dto.date);
+    if (dto.startTime !== undefined) update.startTime = dto.startTime;
+    if (dto.endTime !== undefined) update.endTime = dto.endTime;
+    if (dto.durationMinutes !== undefined) update.durationMinutes = dto.durationMinutes;
+    if (dto.numberOfSets !== undefined) update.numberOfSets = dto.numberOfSets;
+    if (dto.requiredGenres !== undefined) update.requiredGenres = dto.requiredGenres;
+    if (dto.specificRequirements !== undefined) {
+      update.specificRequirements = dto.specificRequirements;
+    }
+    if (dto.artistsNeeded !== undefined) update.artistsNeeded = dto.artistsNeeded;
+    if (dto.budget !== undefined) update.budget = dto.budget;
+    if (dto.currency !== undefined) update.currency = dto.currency;
+    if (dto.paymentType !== undefined) update.paymentType = dto.paymentType;
+    if (dto.isPublic !== undefined) update.isPublic = dto.isPublic;
+    if (dto.acceptingApplications !== undefined) {
+      update.acceptingApplications = dto.acceptingApplications;
+    }
+    if (dto.perks !== undefined) update.perks = dto.perks;
+    if (dto.status !== undefined) update.status = dto.status;
+
+    if (dto.location) {
+      if (
+        !dto.location.geoCoordinates ||
+        dto.location.geoCoordinates.length !== 2
+      ) {
+        throw new BadRequestException(
+          'Gig location geoCoordinates must be [longitude, latitude].',
+        );
+      }
+      const [lng, lat] = dto.location.geoCoordinates;
+      if (!this.isValidLongitude(lng) || !this.isValidLatitude(lat)) {
+        throw new BadRequestException('Invalid geoCoordinates.');
+      }
+      update.location = {
+        venueAddress: dto.location.venueAddress,
+        city: dto.location.city,
+        state: dto.location.state,
+        postalCode: dto.location.postalCode,
+        country: dto.location.country,
+        geo: { type: 'Point', coordinates: [lng, lat] },
+      };
+    }
+
+    const updated = await this.gigModel
+      .findByIdAndUpdate(gigId, { $set: update }, { new: true })
+      .populate('venue', 'venueName venueType coverPhoto location')
+      .exec();
+
+    if (!updated) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    return updated;
+  }
+
+  /**
+   * Venue lists their gigs
    */
   async getVenueGigs(
     venueUserId: string,
     opts?: { page?: number; limit?: number; status?: string },
-  ): Promise<DiscoverResult<GigDocument>> {
+  ): Promise<PaginatedResult<GigDocument>> {
     const page = Math.max(1, opts?.page ?? 1);
     const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    // Handle both string and ObjectId userId for backward compatibility
-    const venueUserIdObj = new Types.ObjectId(venueUserId);
-    const venue = await this.venueModel
-      .findOne({
-        $or: [
-          { userId: venueUserIdObj },
-          { userId: venueUserId },
-        ],
-      })
-      .exec();
+    const venue = await this.findVenueByUserId(venueUserId);
 
     if (!venue) {
       throw new NotFoundException('Venue profile not found');
     }
 
     const filter: Record<string, any> = { venue: venue._id };
-    if (opts?.status) filter.status = opts.status;
+    if (opts?.status) {
+      filter.status = opts.status;
+    }
 
     const [items, total] = await Promise.all([
-      this.gigModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).exec(),
+      this.gigModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('venue', 'venueName venueType coverPhoto location')
+        .exec(),
       this.gigModel.countDocuments(filter).exec(),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      pages: Math.ceil(total / limit),
-    };
+    return { items, total, page, pages: Math.ceil(total / limit) };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // SHARED OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════
+
   /**
-   * ✅ Artist discovery feed for gigs (geo + genres + budget)
-   *
-   * Enterprise UX rules:
-   * - Defaults come from artist profile when query params are missing
-   * - Uses exact geo radius with 2dsphere index on gig.location.geo
-   * - Filters out non-open / non-public gigs
+   * Get a gig by ID (any authenticated user)
    */
-  async discoverGigsForArtist(
+  async getGigById(gigId: string): Promise<GigDocument> {
+    if (!Types.ObjectId.isValid(gigId)) {
+      throw new BadRequestException('Invalid gig ID');
+    }
+
+    const gig = await this.gigModel
+      .findById(gigId)
+      .populate('venue', 'venueName venueType coverPhoto location')
+      .exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    return gig;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ARTIST OPERATIONS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Artist applies to a gig
+   */
+  async applyToGig(
     artistUserId: string,
-    query: DiscoverGigsDto,
-  ): Promise<DiscoverResult<GigDocument>> {
+    gigId: string,
+    dto: ApplyToGigDto,
+  ): Promise<GigDocument> {
     const artist = await this.artistModel
       .findOne({ userId: new Types.ObjectId(artistUserId) })
       .exec();
@@ -228,7 +293,149 @@ export class GigsService {
       throw new NotFoundException('Artist profile not found');
     }
 
-    // Determine defaults from artist profile
+    const gig = await this.gigModel.findById(gigId).exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    if (gig.status !== 'open') {
+      throw new BadRequestException('This gig is not accepting applications.');
+    }
+
+    if (!gig.acceptingApplications) {
+      throw new BadRequestException('This gig is not accepting applications.');
+    }
+
+    const alreadyApplied = gig.applications.some(
+      (app) => app.artist.toString() === artist._id.toString(),
+    );
+
+    if (alreadyApplied) {
+      throw new ConflictException('You have already applied to this gig.');
+    }
+
+    gig.applications.push({
+      artist: artist._id as Types.ObjectId,
+      appliedAt: new Date(),
+      message: dto.message,
+      proposedRate: dto.proposedRate,
+      status: 'pending',
+    });
+    gig.applicationCount = gig.applications.length;
+
+    await gig.save();
+
+    return this.gigModel
+      .findById(gigId)
+      .populate('venue', 'venueName venueType coverPhoto location')
+      .exec() as Promise<GigDocument>;
+  }
+
+  /**
+   * Artist accepts a gig offer (application was already accepted by venue)
+   */
+  async acceptGig(artistUserId: string, gigId: string): Promise<GigDocument> {
+    const artist = await this.artistModel
+      .findOne({ userId: new Types.ObjectId(artistUserId) })
+      .exec();
+
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    const gig = await this.gigModel.findById(gigId).exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    const application = gig.applications.find(
+      (app) =>
+        app.artist.toString() === artist._id.toString() &&
+        app.status === 'accepted',
+    );
+
+    if (!application) {
+      throw new BadRequestException(
+        'No accepted application found for this gig.',
+      );
+    }
+
+    const alreadyBooked = gig.bookedArtists.some(
+      (id) => id.toString() === artist._id.toString(),
+    );
+
+    if (!alreadyBooked) {
+      gig.bookedArtists.push(artist._id as Types.ObjectId);
+    }
+
+    if (gig.bookedArtists.length >= gig.artistsNeeded) {
+      gig.status = 'filled';
+      gig.acceptingApplications = false;
+    }
+
+    await gig.save();
+
+    return this.gigModel
+      .findById(gigId)
+      .populate('venue', 'venueName venueType coverPhoto location')
+      .exec() as Promise<GigDocument>;
+  }
+
+  /**
+   * Artist declines a gig offer
+   */
+  async declineGig(
+    artistUserId: string,
+    gigId: string,
+    reason?: string,
+  ): Promise<void> {
+    const artist = await this.artistModel
+      .findOne({ userId: new Types.ObjectId(artistUserId) })
+      .exec();
+
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    const gig = await this.gigModel.findById(gigId).exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    const application = gig.applications.find(
+      (app) => app.artist.toString() === artist._id.toString(),
+    );
+
+    if (!application) {
+      throw new BadRequestException('No application found for this gig.');
+    }
+
+    application.status = 'withdrawn';
+    await gig.save();
+  }
+
+  /**
+   * Artist discovery feed for gigs (geo + genres + budget)
+   *
+   * - Defaults come from artist profile when query params are missing
+   * - Uses exact geo radius with 2dsphere index on gig.location.geo
+   * - Filters out non-open / non-public gigs
+   */
+  async discoverGigsForArtist(
+    artistUserId: string,
+    query: DiscoverGigsDto,
+  ): Promise<PaginatedResult<GigDocument>> {
+    const artist = await this.artistModel
+      .findOne({ userId: new Types.ObjectId(artistUserId) })
+      .exec();
+
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
     const fallbackGenres =
       artist.genres && artist.genres.length > 0 ? artist.genres : [];
 
@@ -253,42 +460,46 @@ export class GigsService {
       (hasArtistCoords ? (artistCoords![0] as number) : undefined);
 
     const radiusKm = query.radiusKm ?? fallbackRadiusKm;
-
     const genres = query.genres?.length ? query.genres : fallbackGenres;
 
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(50, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    // Base filter: only gigs that can be acted upon
+    // Base filter for discoverable gigs
     const filter: Record<string, any> = {
       status: 'open',
       isPublic: true,
       acceptingApplications: true,
-      // Must have location for geo discovery
       'location.geo': { $exists: true },
     };
 
-    // Budget filters
+    // Separate count filter (countDocuments does not support $near)
+    const countFilter: Record<string, any> = { ...filter };
+
     if (query.minBudget !== undefined) {
       filter.budget = { ...(filter.budget ?? {}), $gte: query.minBudget };
+      countFilter.budget = { ...(countFilter.budget ?? {}), $gte: query.minBudget };
     }
     if (query.maxBudget !== undefined) {
       filter.budget = { ...(filter.budget ?? {}), $lte: query.maxBudget };
+      countFilter.budget = { ...(countFilter.budget ?? {}), $lte: query.maxBudget };
     }
 
-    // Genre filter (optional; if artist has no genres, we don't block discovery)
     if (genres.length) {
       filter.requiredGenres = { $in: genres };
+      countFilter.requiredGenres = { $in: genres };
     }
 
-    // Geo filter (recommended default)
+    let isGeoQuery = false;
+
     if (
       latitude !== undefined &&
       longitude !== undefined &&
       this.isValidLatitude(latitude) &&
       this.isValidLongitude(longitude)
     ) {
+      // $near for find() - sorted by distance
       filter['location.geo'] = {
         $near: {
           $geometry: {
@@ -298,15 +509,18 @@ export class GigsService {
           $maxDistance: radiusKm * 1000,
         },
       };
-    } else {
-      // If artist lacks coordinates, discovery still works (but less relevant).
-      // We intentionally do NOT throw; we keep UX smooth.
-      // Optionally, you can later enforce setup completion by requiring coords.
+      // $geoWithin for countDocuments - compatible with count operations
+      countFilter['location.geo'] = {
+        $geoWithin: {
+          $centerSphere: [
+            [longitude, latitude],
+            radiusKm / 6378.1, // Convert km to radians
+          ],
+        },
+      };
+      isGeoQuery = true;
     }
 
-    // Sorting
-    // Note: With $near, Mongo will already order by distance.
-    // If no $near, we use sortBy selection.
     const sortBy = query.sortBy ?? 'relevance';
 
     const nonGeoSort: Record<string, any> =
@@ -316,9 +530,7 @@ export class GigsService {
           ? { budget: -1 }
           : sortBy === 'newest'
             ? { createdAt: -1 }
-            : { createdAt: -1 }; // relevance fallback
-
-    const isGeoQuery = !!filter['location.geo']?.$near;
+            : { createdAt: -1 };
 
     const findQuery = this.gigModel.find(filter);
 
@@ -326,21 +538,36 @@ export class GigsService {
       findQuery.sort(nonGeoSort);
     }
 
-    // NOTE: Keeping population light for mobile performance.
-    // If you need venue fields, either populate selectively or denormalize.
-    findQuery.populate('venue', 'venueName venueType coverPhoto location city country');
+    findQuery.populate('venue', 'venueName venueType coverPhoto location');
 
     const [items, total] = await Promise.all([
       findQuery.skip(skip).limit(limit).exec(),
-      this.gigModel.countDocuments(filter).exec(),
+      this.gigModel.countDocuments(countFilter).exec(),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      pages: Math.ceil(total / limit),
+    return { items, total, page, pages: Math.ceil(total / limit) };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Find venue by user ID, optionally requiring a specific venue _id match.
+   * Handles both string and ObjectId userId for backward compatibility.
+   */
+  private async findVenueByUserId(
+    venueUserId: string,
+    venueId?: string,
+  ): Promise<VenueDocument | null> {
+    const venueUserIdObj = new Types.ObjectId(venueUserId);
+    const filter: Record<string, any> = {
+      $or: [{ userId: venueUserIdObj }, { userId: venueUserId }],
     };
+    if (venueId) {
+      filter._id = venueId;
+    }
+    return this.venueModel.findOne(filter).exec();
   }
 
   private isValidLatitude(lat: number): boolean {
@@ -348,6 +575,8 @@ export class GigsService {
   }
 
   private isValidLongitude(lng: number): boolean {
-    return typeof lng === 'number' && Number.isFinite(lng) && lng >= -180 && lng <= 180;
+    return (
+      typeof lng === 'number' && Number.isFinite(lng) && lng >= -180 && lng <= 180
+    );
   }
 }

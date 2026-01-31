@@ -106,6 +106,13 @@ export class Gig {
     };
   };
 
+  // Status
+  @Prop({
+    enum: ['draft', 'open', 'in_progress', 'filled', 'completed', 'cancelled'],
+    default: 'draft',
+  })
+  status: string;
+
   // Applications
   @Prop(
     raw([
