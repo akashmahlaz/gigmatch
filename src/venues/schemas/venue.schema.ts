@@ -824,7 +824,7 @@ VenueSchema.methods.getAvailableSlots = function (date: Date): number {
 };
 
 /// Pre-save hook to calculate profile completeness
-VenueSchema.pre('save', function (this: VenueDocument, next: any) {
+VenueSchema.pre('save', function (this: VenueDocument) {
   if (
     this.isModified('venueName') ||
     this.isModified('description') ||
@@ -857,8 +857,6 @@ VenueSchema.pre('save', function (this: VenueDocument, next: any) {
     ...this.preferredGenres,
     ...this.gigTypes,
   ].filter(Boolean) as string[];
-
-  next();
 });
 
 /// Instance method to get public profile (hide sensitive data)

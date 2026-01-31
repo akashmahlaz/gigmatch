@@ -76,6 +76,8 @@ export class SwipesController {
       return {
         success: true,
         action: 'match',
+        isMatch: true,
+        swipeId: result.swipe._id.toString(),
         message: "🎉 It's a match! You can now start a conversation.",
         match: result.match,
       };
@@ -83,6 +85,8 @@ export class SwipesController {
 
     return {
       success: true,
+      isMatch: false,
+      swipeId: result.swipe._id.toString(),
       action: result.result === 'liked' ? 'saved' : 'skipped',
       message:
         result.result === 'liked' ? 'Saved to your favorites' : 'Skipped',
@@ -196,9 +200,22 @@ export class SwipesController {
       );
     }
 
+    // Normalize response structure for frontend
+    // Backend returns 'gigs' for artists, 'artists' for venues
+    // Frontend expects 'profiles' with hasMore for pagination
+    const profiles = feed.gigs ?? feed.artists ?? [];
+    const limit = query.limit ?? 20;
+    const hasMore = feed.total > (feed.page ?? 1) * limit;
+
     return {
       success: true,
-      ...feed,
+      profiles,
+      gigs: feed.gigs,
+      artists: feed.artists,
+      total: feed.total,
+      page: feed.page,
+      limit,
+      hasMore,
     };
   }
 
