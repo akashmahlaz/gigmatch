@@ -669,9 +669,20 @@ export class AuthService {
               { $set: { profilePhoto: picture } },
             );
           } else if (user.role === 'venue' && user.venueProfile) {
+            // For venues, set as primary photo in photos array
             await this.venueModel.updateOne(
               { _id: user.venueProfile },
-              { $set: { profilePhoto: picture } },
+              {
+                $set: {
+                  photos: [{
+                    url: picture,
+                    isPrimary: true,
+                    order: 0,
+                    uploadedAt: new Date(),
+                    caption: '',
+                  }],
+                },
+              },
             );
           }
         }
