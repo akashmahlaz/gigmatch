@@ -8,6 +8,7 @@ import {
   IsNumber,
   Min,
   Max,
+  IsObject,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -58,6 +59,16 @@ export class SendMessageDto {
   @IsOptional()
   @IsMongoId()
   replyTo?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsMongoId()
+  replyToMessageId?: string;
+
+  @ApiPropertyOptional({ description: 'Additional metadata for the message' })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, any>;
 }
 
 export class GetMessagesDto {

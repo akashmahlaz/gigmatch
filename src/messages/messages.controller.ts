@@ -7,6 +7,9 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -14,7 +17,9 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiConsumes,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MessagesService } from './messages.service';
 import { SendMessageDto, GetMessagesDto, MarkMessagesReadDto } from './dto/message.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -27,6 +32,38 @@ import { UserPayload } from '../schemas/user.schema';
 @ApiBearerAuth()
 export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Upload media file' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 201, description: 'File uploaded successfully' })
+  async uploadMedia(
+    @CurrentUser() user: UserPayload,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/', 'audio/', 'application/pdf'];
+    const isValidType = allowedTypes.some(type => file.mimetype.startsWith(type));
+
+    if (!isValidType) {
+      throw new BadRequestException('Invalid file type. Allowed: images, audio, PDF');
+    }
+
+    // Upload to storage (implementation depends on your storage provider)
+    const url = await this.messagesService.uploadMedia(file);
+
+    return {
+      url,
+      originalName: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+    };
+  }
 
   @Post()
   @ApiOperation({ summary: 'Send a message' })

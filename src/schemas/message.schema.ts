@@ -83,6 +83,10 @@ export class Message {
   // Reply to
   @Prop({ type: Types.ObjectId, ref: 'Message' })
   replyTo?: Types.ObjectId;
+
+  // Additional metadata (for location, duration, etc.)
+  @Prop({ type: raw({}), default: {} })
+  metadata: Record<string, any>;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

@@ -9,13 +9,53 @@ import { Model, Types } from 'mongoose';
 import { Message, MessageDocument } from '../schemas/message.schema';
 import { Match, MatchDocument } from '../schemas/match.schema';
 import { SendMessageDto, GetMessagesDto, MarkMessagesReadDto } from './dto/message.dto';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class MessagesService {
+  private readonly uploadUrl: string;
+
   constructor(
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
     @InjectModel(Match.name) private matchModel: Model<MatchDocument>,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    this.uploadUrl = this.configService.get<string>('UPLOAD_URL') || '/uploads';
+  }
+
+  /**
+   * Upload media file
+   */
+  async uploadMedia(file: Express.Multer.File): Promise<string> {
+    // Generate unique filename
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 8);
+    const ext = this.getFileExtension(file.originalname);
+    const filename = `media_${timestamp}_${random}${ext}`;
+
+    // In a real implementation, you would:
+    // 1. Upload to cloud storage (S3, GCS, Azure Blob, etc.)
+    // 2. Return the public URL
+    //
+    // For now, we'll return a simulated URL
+    const mediaUrl = `${this.uploadUrl}/${filename}`;
+
+    // TODO: Implement actual file upload to cloud storage
+    // Example with AWS S3:
+    // const uploadResult = await this.s3Client.upload({
+    //   Bucket: this.configService.get('AWS_BUCKET'),
+    //   Key: filename,
+    //   Body: file.buffer,
+    //   ContentType: file.mimetype,
+    // }).promise();
+
+    return mediaUrl;
+  }
+
+  private getFileExtension(filename: string): string {
+    const parts = filename.split('.');
+    return parts.length > 1 ? `.${parts.pop()}` : '';
+  }
 
   /**
    * Send a message in a match conversation
@@ -25,7 +65,15 @@ export class MessagesService {
     userRole: string,
     sendMessageDto: SendMessageDto,
   ): Promise<MessageDocument> {
-    const { matchId, messageType = 'text', content, attachments, replyTo } = sendMessageDto;
+    const {
+      matchId,
+      messageType = 'text',
+      content,
+      attachments,
+      replyTo,
+      replyToMessageId,
+      metadata,
+    } = sendMessageDto;
 
     // Verify match exists and user is part of it
     const match = await this.verifyMatchAccess(matchId, userId);
@@ -42,8 +90,9 @@ export class MessagesService {
       messageType,
       content,
       attachments: attachments || [],
-      replyTo,
+      replyTo: replyTo ?? replyToMessageId,
       deliveryStatus: 'sent',
+      metadata,
     });
 
     await message.save();
