@@ -398,6 +398,96 @@ export class BookingsService {
     return booking;
   }
 
+  /// Create final payment intent (remaining balance after deposit)
+  async createFinalPaymentIntent(
+    bookingId: string,
+    userId: string,
+  ): Promise<{
+    clientSecret: string;
+    paymentIntentId: string;
+    amount: number;
+    currency: string;
+  }> {
+    if (!this.stripe) {
+      throw new BadRequestException('Payment system not configured');
+    }
+
+    const booking = await this.findById(bookingId);
+
+    // Only venue can pay
+    if (booking.venueUser.toString() !== userId) {
+      throw new ForbiddenException('Only venue can make payment');
+    }
+
+    if (booking.status !== 'deposit_paid' && booking.status !== 'confirmed') {
+      throw new BadRequestException('Booking must have deposit paid or be confirmed');
+    }
+
+    if (booking.payment?.finalPaid) {
+      throw new BadRequestException('Final payment already completed');
+    }
+
+    // Calculate remaining balance (total - deposit)
+    const depositAmount = booking.payment?.depositAmount || booking.agreedAmount * 0.25;
+    const remainingAmount = booking.agreedAmount - depositAmount;
+    const amount = Math.round(remainingAmount * 100); // cents
+
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount,
+      currency: booking.currency.toLowerCase(),
+      metadata: {
+        bookingId: (booking as BookingDocument).id,
+        type: 'final',
+      },
+    });
+
+    // Store payment intent ID
+    booking.payment = {
+      ...booking.payment,
+      stripeFinalPaymentIntentId: paymentIntent.id,
+    };
+    await (booking as BookingDocument).save();
+
+    return {
+      clientSecret: paymentIntent.client_secret!,
+      paymentIntentId: paymentIntent.id,
+      amount: amount / 100,
+      currency: booking.currency,
+    };
+  }
+
+  /// Confirm final payment
+  async confirmFinalPayment(
+    bookingId: string,
+    paymentIntentId: string,
+  ): Promise<Booking> {
+    const booking = await this.findById(bookingId);
+
+    if (booking.payment?.stripeFinalPaymentIntentId !== paymentIntentId) {
+      throw new BadRequestException('Payment intent mismatch');
+    }
+
+    booking.payment = {
+      ...booking.payment,
+      finalPaid: true,
+      finalPaidAt: new Date(),
+    };
+    booking.status = 'paid';
+
+    await (booking as BookingDocument).save();
+
+    // Notify artist about final payment
+    await this.notificationsService.sendNotification({
+      userId: booking.artistUser.toString(),
+      type: 'payment_received',
+      title: 'Full Payment Received!',
+      body: `Final payment for "${booking.title}" has been completed. Thank you!`,
+      deepLink: `/booking/${(booking as BookingDocument).id}`,
+    });
+
+    return booking;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // CONTRACT
   // ═══════════════════════════════════════════════════════════════════════

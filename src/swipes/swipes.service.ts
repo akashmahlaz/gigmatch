@@ -561,7 +561,7 @@ export class SwipesService {
     const [artists, total] = await Promise.all([
       this.artistModel
         .find(matchQuery)
-        .sort({ 'reviewStats.averageRating': -1, profileCompleteness: -1 })
+        .sort({ isBoosted: -1, 'reviewStats.averageRating': -1, profileCompleteness: -1 })
         .skip(skip)
         .limit(limit)
         .select('-email -phone -socialLinks')
@@ -570,13 +570,13 @@ export class SwipesService {
       this.artistModel.countDocuments(countQuery),
     ]);
 
-    // Add recommendation scores
+    // Add recommendation scores (boosted profiles get priority)
     const scoredArtists = artists.map((artist) => ({
       ...artist,
       recommendationScore: this.calculateArtistRecommendationScore(
         artist,
         venue,
-      ),
+      ) + (artist.isBoosted ? 100 : 0), // Boosted profiles get +100 score
     }));
 
     // Sort by recommendation score

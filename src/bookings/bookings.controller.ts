@@ -78,6 +78,11 @@ export class BookingsController {
     return this.bookingsService.createDepositPaymentIntent(id, req.user.userId);
   }
 
+  @Post(':id/pay-final')
+  async createFinalPayment(@Param('id') id: string, @Request() req) {
+    return this.bookingsService.createFinalPaymentIntent(id, req.user.userId);
+  }
+
   @Post(':id/confirm-payment')
   async confirmPayment(
     @Param('id') id: string,

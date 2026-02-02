@@ -20,13 +20,14 @@ import { MessagesModule } from './messages/messages.module';
 import { MatchesModule } from './matches/matches.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { BookingsModule } from './bookings/bookings.module';
-// import { AnalyticsModule } from './analytics/analytics.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { NotificationsModule } from './notifications/notifications.module';
-// import { SubscriptionModule } from './subscription/subscription.module';
+import { SubscriptionModule } from './subscription/subscription.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { EmailModule } from './email/email.module';
 import { PostsModule } from './posts/posts.module';
 import { StoriesModule } from './stories/stories.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
   imports: [
@@ -118,8 +119,9 @@ import { StoriesModule } from './stories/stories.module';
     NotificationsModule,
     PostsModule,
     StoriesModule,
-    // AnalyticsModule,
-    // SubscriptionModule,
+    SubscriptionModule,
+    AnalyticsModule,
+    WalletModule,
   ],
 })
 export class AppModule {}

@@ -42,6 +42,10 @@ export class StripeService {
   private readonly logger = new Logger(StripeService.name);
   private stripe: Stripe;
 
+  /// Stripe API version - update yearly for new features and security
+  /// Check https://stripe.com/docs/api/versioning for latest version
+  private static readonly API_VERSION = '2026-01-17.clover' as const;
+
   constructor(private configService: ConfigService) {
     const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');
 
@@ -50,19 +54,26 @@ export class StripeService {
         'Stripe secret key not configured - payment features will be disabled',
       );
       this.stripe = new Stripe('sk_test_placeholder', {
-        apiVersion: '2025-12-15.clover',
+        apiVersion: StripeService.API_VERSION,
       });
     } else {
       this.stripe = new Stripe(secretKey, {
-        apiVersion: '2025-12-15.clover',
+        apiVersion: StripeService.API_VERSION,
       });
     }
+
+    this.logger.log(`Stripe SDK initialized with API version: ${StripeService.API_VERSION}`);
   }
 
   /// Check if Stripe is configured
   get isConfigured(): boolean {
     const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');
     return secretKey != null && !secretKey.includes('placeholder');
+  }
+
+  /// Get the configured API version
+  getApiVersion(): string {
+    return StripeService.API_VERSION;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -472,6 +483,30 @@ export class StripeService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // EPHEMERAL KEYS (for Payment Sheet)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /// Create an ephemeral key for the customer (used by Payment Sheet)
+  async createEphemeralKey(customerId: string): Promise<string | null> {
+    if (!this.isConfigured) {
+      return `ek_mock_${Date.now()}`;
+    }
+
+    try {
+      const ephemeralKey = await this.stripe.ephemeralKeys.create(
+        { customer: customerId },
+        { apiVersion: '2025-12-15.clover' },
+      );
+
+      this.logger.log(`Created ephemeral key for customer: ${customerId}`);
+      return ephemeralKey.secret ?? null;
+    } catch (error) {
+      this.logger.error(`Failed to create ephemeral key: ${error.message}`);
+      return null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // PAYMENT INTENTS
   // ═══════════════════════════════════════════════════════════════════════
 
@@ -507,8 +542,9 @@ export class StripeService {
   private createMockPaymentIntent(
     dto: CreatePaymentIntentDto,
   ): Stripe.PaymentIntent {
+    const mockId = `pi_mock_${Date.now()}`;
     return {
-      id: `pi_mock_${Date.now()}`,
+      id: mockId,
       object: 'payment_intent',
       amount: dto.amount,
       currency: dto.currency,
@@ -517,6 +553,7 @@ export class StripeService {
       description: dto.description,
       metadata: dto.metadata || {},
       created: Date.now() / 1000,
+      client_secret: `${mockId}_secret_mock`, // ✅ Required for Payment Sheet
     } as unknown as Stripe.PaymentIntent;
   }
 

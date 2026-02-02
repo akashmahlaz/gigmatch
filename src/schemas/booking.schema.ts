@@ -73,6 +73,7 @@ export class Booking {
       finalPaid: { type: Boolean, default: false },
       finalPaidAt: { type: Date },
       stripePaymentIntentId: { type: String },
+      stripeFinalPaymentIntentId: { type: String },
       stripeChargeId: { type: String },
     }),
   )
@@ -84,6 +85,7 @@ export class Booking {
     finalPaid: boolean;
     finalPaidAt?: Date;
     stripePaymentIntentId?: string;
+    stripeFinalPaymentIntentId?: string;
     stripeChargeId?: string;
   };
 
@@ -93,6 +95,7 @@ export class Booking {
       'pending',
       'confirmed',
       'deposit_paid',
+      'paid',
       'in_progress',
       'completed',
       'cancelled',
@@ -104,6 +107,7 @@ export class Booking {
     | 'pending'
     | 'confirmed'
     | 'deposit_paid'
+    | 'paid'
     | 'in_progress'
     | 'completed'
     | 'cancelled'
