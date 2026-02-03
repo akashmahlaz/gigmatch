@@ -214,6 +214,59 @@ export class GigsService {
   }
 
   /**
+   * Delete a gig (venue only)
+   */
+  async deleteGig(venueUserId: string, gigId: string): Promise<void> {
+    const gig = await this.gigModel.findById(gigId).exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    if (gig.postedBy.toString() !== venueUserId) {
+      throw new ForbiddenException('You can only delete your own gigs.');
+    }
+
+    await this.gigModel.findByIdAndDelete(gigId);
+  }
+
+  /**
+   * Cancel a gig (soft delete - updates status to cancelled)
+   */
+  async cancelGig(
+    venueUserId: string,
+    gigId: string,
+    reason?: string,
+  ): Promise<GigDocument> {
+    const gig = await this.gigModel.findById(gigId).exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    if (gig.postedBy.toString() !== venueUserId) {
+      throw new ForbiddenException('You can only cancel your own gigs.');
+    }
+
+    const updated = await this.gigModel
+      .findByIdAndUpdate(
+        gigId,
+        {
+          $set: {
+            status: 'cancelled',
+            cancelledAt: new Date(),
+            cancellationReason: reason,
+          },
+        },
+        { new: true },
+      )
+      .populate('venue', 'venueName venueType coverPhoto location')
+      .exec();
+
+    return updated!;
+  }
+
+  /**
    * Venue lists their gigs
    */
   async getVenueGigs(

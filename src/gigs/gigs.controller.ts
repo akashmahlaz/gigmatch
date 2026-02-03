@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -16,6 +17,7 @@ import {
   ApiQuery,
   ApiResponse,
   ApiTags,
+  ApiBody,
 } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -71,6 +73,48 @@ export class GigsController {
       throw new ForbiddenException('Only venue accounts can update gigs.');
     }
     return this.gigsService.updateGig(user._id.toString(), gigId, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a gig (venue only)' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiResponse({ status: 200, description: 'Gig deleted' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 404, description: 'Gig not found' })
+  async deleteGig(
+    @CurrentUser() user: UserPayload,
+    @Param('id') gigId: string,
+  ) {
+    if (user.role !== 'venue' && user.role !== 'admin') {
+      throw new ForbiddenException('Only venue accounts can delete gigs.');
+    }
+    await this.gigsService.deleteGig(user._id.toString(), gigId);
+    return { message: 'Gig deleted successfully' };
+  }
+
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel a gig (soft delete, venue only)' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: 'Optional cancellation reason' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Gig cancelled' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @ApiResponse({ status: 404, description: 'Gig not found' })
+  async cancelGig(
+    @CurrentUser() user: UserPayload,
+    @Param('id') gigId: string,
+    @Body() body: { reason?: string },
+  ) {
+    if (user.role !== 'venue' && user.role !== 'admin') {
+      throw new ForbiddenException('Only venue accounts can cancel gigs.');
+    }
+    return this.gigsService.cancelGig(user._id.toString(), gigId, body.reason);
   }
 
   @Get('mine')

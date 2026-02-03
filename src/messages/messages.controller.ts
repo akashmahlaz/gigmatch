@@ -144,6 +144,131 @@ export class MessagesController {
     return { message: 'Messages marked as read' };
   }
 
+  @Post('conversations/:matchId/block')
+  @ApiOperation({ summary: 'Block a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: 'Optional reason for blocking' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Conversation blocked' })
+  async blockConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+    @Body() body: { reason?: string },
+  ) {
+    await this.messagesService.blockConversation(
+      matchId,
+      user._id.toString(),
+      body.reason,
+    );
+    return { message: 'Conversation blocked' };
+  }
+
+  @Post('conversations/:matchId/unblock')
+  @ApiOperation({ summary: 'Unblock a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiResponse({ status: 200, description: 'Conversation unblocked' })
+  async unblockConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+  ) {
+    await this.messagesService.unblockConversation(matchId, user._id.toString());
+    return { message: 'Conversation unblocked' };
+  }
+
+  @Post('conversations/:matchId/mute')
+  @ApiOperation({ summary: 'Mute a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiResponse({ status: 200, description: 'Conversation muted' })
+  async muteConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+  ) {
+    await this.messagesService.muteConversation(
+      matchId,
+      user._id.toString(),
+      user.role,
+    );
+    return { message: 'Conversation muted' };
+  }
+
+  @Post('conversations/:matchId/unmute')
+  @ApiOperation({ summary: 'Unmute a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiResponse({ status: 200, description: 'Conversation unmuted' })
+  async unmuteConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+  ) {
+    await this.messagesService.unmuteConversation(
+      matchId,
+      user._id.toString(),
+      user.role,
+    );
+    return { message: 'Conversation unmuted' };
+  }
+
+  @Post('conversations/:matchId/archive')
+  @ApiOperation({ summary: 'Archive a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiResponse({ status: 200, description: 'Conversation archived' })
+  async archiveConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+  ) {
+    await this.messagesService.archiveConversation(matchId, user._id.toString());
+    return { message: 'Conversation archived' };
+  }
+
+  @Post('conversations/:matchId/unarchive')
+  @ApiOperation({ summary: 'Unarchive a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiResponse({ status: 200, description: 'Conversation unarchived' })
+  async unarchiveConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+  ) {
+    await this.messagesService.unarchiveConversation(matchId, user._id.toString());
+    return { message: 'Conversation unarchived' };
+  }
+
+  @Post('conversations/:matchId/pin')
+  @ApiOperation({ summary: 'Pin a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiResponse({ status: 200, description: 'Conversation pinned' })
+  async pinConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+  ) {
+    await this.messagesService.pinConversation(
+      matchId,
+      user._id.toString(),
+      user.role,
+    );
+    return { message: 'Conversation pinned' };
+  }
+
+  @Post('conversations/:matchId/unpin')
+  @ApiOperation({ summary: 'Unpin a conversation' })
+  @ApiParam({ name: 'matchId', description: 'Match/Conversation ID' })
+  @ApiResponse({ status: 200, description: 'Conversation unpinned' })
+  async unpinConversation(
+    @CurrentUser() user: UserPayload,
+    @Param('matchId') matchId: string,
+  ) {
+    await this.messagesService.unpinConversation(
+      matchId,
+      user._id.toString(),
+      user.role,
+    );
+    return { message: 'Conversation unpinned' };
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a message' })
   @ApiParam({ name: 'id', description: 'Message ID' })

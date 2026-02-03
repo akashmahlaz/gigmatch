@@ -275,6 +275,22 @@ export class MessagesService {
       })
       .exec();
 
+    // Get participant details for response
+    let participantName: string | undefined;
+    let participantPhoto: string | undefined;
+
+    if (participantType === 'artist') {
+      const artist = await this.artistModel.findById(participantProfileId).exec();
+      participantName = artist?.displayName;
+      participantPhoto = artist?.profilePhotoUrl;
+    } else {
+      const venue = await this.venueModel.findById(participantProfileId).exec();
+      participantName = venue?.venueName;
+      // Venue uses photos array with isPrimary, get primary or first photo
+      const primaryPhoto = venue?.photos?.find(p => p.isPrimary);
+      participantPhoto = primaryPhoto?.url || venue?.photos?.[0]?.url;
+    }
+
     // If match exists, return conversation info
     if (match) {
       return {
@@ -283,6 +299,8 @@ export class MessagesService {
         participantId: participantProfileId,
         participantUserId,
         participantType,
+        participantName,
+        participantPhoto,
         isMatch: true,
         lastMessageAt: match.lastMessageAt,
         lastMessagePreview: match.lastMessagePreview,
@@ -311,6 +329,8 @@ export class MessagesService {
       participantId: participantProfileId,
       participantUserId,
       participantType,
+      participantName,
+      participantPhoto,
       isMatch: false,
       lastMessageAt: null,
       lastMessagePreview: null,
@@ -360,5 +380,144 @@ export class MessagesService {
         content.length > 50 ? content.substring(0, 50) + '...' : content,
       $inc: { [recipientField]: 1 },
     });
+  }
+
+  /**
+   * Block a conversation
+   */
+  async blockConversation(
+    matchId: string,
+    userId: string,
+    reason?: string,
+  ): Promise<void> {
+    const match = await this.matchModel.findById(matchId).exec();
+
+    if (!match) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    // Verify user is part of this match
+    if (
+      match.artistUser.toString() !== userId &&
+      match.venueUser.toString() !== userId
+    ) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    await this.matchModel.findByIdAndUpdate(matchId, {
+      status: 'blocked',
+      blockedBy: userId,
+      blockedAt: new Date(),
+      blockReason: reason,
+    });
+  }
+
+  /**
+   * Unblock a conversation
+   */
+  async unblockConversation(matchId: string, userId: string): Promise<void> {
+    const match = await this.matchModel.findById(matchId).exec();
+
+    if (!match) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    // Only the blocker can unblock
+    if (match.blockedBy?.toString() !== userId) {
+      throw new ForbiddenException('Only the person who blocked can unblock');
+    }
+
+    await this.matchModel.findByIdAndUpdate(matchId, {
+      status: 'active',
+      $unset: { blockedBy: '', blockedAt: '', blockReason: '' },
+    });
+  }
+
+  /**
+   * Mute a conversation
+   */
+  async muteConversation(
+    matchId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<void> {
+    const match = await this.verifyMatchAccess(matchId, userId);
+
+    const muteField = userRole === 'artist' ? 'isMuted.artist' : 'isMuted.venue';
+    await this.matchModel.findByIdAndUpdate(matchId, { [muteField]: true });
+  }
+
+  /**
+   * Unmute a conversation
+   */
+  async unmuteConversation(
+    matchId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<void> {
+    const match = await this.verifyMatchAccess(matchId, userId);
+
+    const muteField = userRole === 'artist' ? 'isMuted.artist' : 'isMuted.venue';
+    await this.matchModel.findByIdAndUpdate(matchId, { [muteField]: false });
+  }
+
+  /**
+   * Check if conversation is muted for user
+   */
+  async isConversationMuted(
+    matchId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<boolean> {
+    const match = await this.matchModel.findById(matchId).exec();
+    if (!match) {
+      return false;
+    }
+
+    return userRole === 'artist' 
+      ? match.isMuted?.artist ?? false 
+      : match.isMuted?.venue ?? false;
+  }
+
+  /**
+   * Archive a conversation
+   */
+  async archiveConversation(matchId: string, userId: string): Promise<void> {
+    const match = await this.verifyMatchAccess(matchId, userId);
+    await this.matchModel.findByIdAndUpdate(matchId, { status: 'archived' });
+  }
+
+  /**
+   * Unarchive a conversation
+   */
+  async unarchiveConversation(matchId: string, userId: string): Promise<void> {
+    const match = await this.verifyMatchAccess(matchId, userId);
+    await this.matchModel.findByIdAndUpdate(matchId, { status: 'active' });
+  }
+
+  /**
+   * Pin a conversation (stored per-user in metadata)
+   */
+  async pinConversation(
+    matchId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<void> {
+    const match = await this.verifyMatchAccess(matchId, userId);
+    const pinField = userRole === 'artist' ? 'isPinned.artist' : 'isPinned.venue';
+    await this.matchModel.findByIdAndUpdate(matchId, { [pinField]: true });
+  }
+
+  /**
+   * Unpin a conversation
+   */
+  async unpinConversation(
+    matchId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<void> {
+    const match = await this.verifyMatchAccess(matchId, userId);
+    const pinField = userRole === 'artist' ? 'isPinned.artist' : 'isPinned.venue';
+    await this.matchModel.findByIdAndUpdate(matchId, { [pinField]: false });
   }
 }

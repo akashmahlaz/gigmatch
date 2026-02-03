@@ -88,6 +88,18 @@ export class Match {
     venue: boolean;
   };
 
+  // Pin settings per user
+  @Prop(
+    raw({
+      artist: { type: Boolean, default: false },
+      venue: { type: Boolean, default: false },
+    }),
+  )
+  isPinned: {
+    artist: boolean;
+    venue: boolean;
+  };
+
   // Block info
   @Prop({ type: Types.ObjectId, ref: 'User' })
   blockedBy?: Types.ObjectId;
