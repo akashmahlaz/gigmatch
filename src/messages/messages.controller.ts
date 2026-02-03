@@ -18,6 +18,7 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MessagesService } from './messages.service';
@@ -63,6 +64,36 @@ export class MessagesController {
       size: file.size,
       mimetype: file.mimetype,
     };
+  }
+
+  /**
+   * Get or create a conversation with a participant
+   */
+  @Post('conversations/get-or-create')
+  @ApiOperation({ summary: 'Get or create a conversation with a participant' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        participantId: { type: 'string' },
+        participantType: { type: 'string', enum: ['artist', 'venue'] },
+      },
+      required: ['participantId', 'participantType'],
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Conversation retrieved or created' })
+  @ApiResponse({ status: 400, description: 'Invalid participant' })
+  @ApiResponse({ status: 403, description: 'Access denied' })
+  async getOrCreateConversation(
+    @CurrentUser() user: UserPayload,
+    @Body() body: { participantId: string; participantType: 'artist' | 'venue' },
+  ) {
+    return this.messagesService.getOrCreateConversation(
+      user._id.toString(),
+      user.role,
+      body.participantId,
+      body.participantType,
+    );
   }
 
   @Post()

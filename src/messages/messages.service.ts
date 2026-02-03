@@ -8,6 +8,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Message, MessageDocument } from '../schemas/message.schema';
 import { Match, MatchDocument } from '../schemas/match.schema';
+import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
+import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import { SendMessageDto, GetMessagesDto, MarkMessagesReadDto } from './dto/message.dto';
 import { ConfigService } from '@nestjs/config';
 
@@ -18,38 +20,20 @@ export class MessagesService {
   constructor(
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
     @InjectModel(Match.name) private matchModel: Model<MatchDocument>,
+    @InjectModel(Artist.name) private artistModel: Model<ArtistDocument>,
+    @InjectModel(Venue.name) private venueModel: Model<VenueDocument>,
     private configService: ConfigService,
   ) {
     this.uploadUrl = this.configService.get<string>('UPLOAD_URL') || '/uploads';
   }
 
   /**
-   * Upload media file
+   * Upload media file to Cloudinary
    */
   async uploadMedia(file: Express.Multer.File): Promise<string> {
-    // Generate unique filename
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 8);
-    const ext = this.getFileExtension(file.originalname);
-    const filename = `media_${timestamp}_${random}${ext}`;
-
-    // In a real implementation, you would:
-    // 1. Upload to cloud storage (S3, GCS, Azure Blob, etc.)
-    // 2. Return the public URL
-    //
-    // For now, we'll return a simulated URL
-    const mediaUrl = `${this.uploadUrl}/${filename}`;
-
-    // TODO: Implement actual file upload to cloud storage
-    // Example with AWS S3:
-    // const uploadResult = await this.s3Client.upload({
-    //   Bucket: this.configService.get('AWS_BUCKET'),
-    //   Key: filename,
-    //   Body: file.buffer,
-    //   ContentType: file.mimetype,
-    // }).promise();
-
-    return mediaUrl;
+    // This is now handled by Cloudinary service
+    // Just return a placeholder - actual upload happens in CloudinaryController
+    throw new Error('Use CloudinaryController for uploads');
   }
 
   private getFileExtension(filename: string): string {
@@ -219,6 +203,118 @@ export class MessagesService {
       isRead: false,
       isDeleted: false,
     });
+  }
+
+  /**
+   * Get or create a conversation with a participant
+   * 
+   * NOTE: participantId can be either:
+   * - An Artist profile ID (when participantType is 'artist')
+   * - A Venue profile ID (when participantType is 'venue')
+   * 
+   * We need to look up the corresponding User ID from the profile.
+   */
+  async getOrCreateConversation(
+    userId: string,
+    userRole: string,
+    participantId: string,
+    participantType: 'artist' | 'venue',
+  ): Promise<any> {
+    // Look up the User ID from the profile ID
+    let participantUserId: string;
+    let participantProfileId: string;
+    let currentUserProfileId: string | null = null;
+
+    if (participantType === 'artist') {
+      // participantId is an Artist profile ID - look up the user
+      const artist = await this.artistModel.findById(participantId).exec();
+      if (!artist) {
+        throw new NotFoundException('Artist not found');
+      }
+      participantUserId = artist.userId.toString();
+      participantProfileId = participantId;
+
+      // If current user is a venue, get their venue profile ID
+      if (userRole === 'venue') {
+        const venue = await this.venueModel.findOne({ userId: userId }).exec();
+        currentUserProfileId = venue?._id.toString() || null;
+      }
+    } else {
+      // participantId is a Venue profile ID - look up the user
+      const venue = await this.venueModel.findById(participantId).exec();
+      if (!venue) {
+        throw new NotFoundException('Venue not found');
+      }
+      participantUserId = venue.userId.toString();
+      participantProfileId = participantId;
+
+      // If current user is an artist, get their artist profile ID
+      if (userRole === 'artist') {
+        const artist = await this.artistModel.findOne({ userId: userId }).exec();
+        currentUserProfileId = artist?._id.toString() || null;
+      }
+    }
+
+    // Check if user is trying to message themselves
+    if (userId === participantUserId) {
+      throw new BadRequestException('Cannot create conversation with yourself');
+    }
+
+    // Determine artist and venue IDs for the match
+    const artistUserId = participantType === 'artist' ? participantUserId : userId;
+    const venueUserId = participantType === 'venue' ? participantUserId : userId;
+    const artistProfileId = participantType === 'artist' ? participantProfileId : currentUserProfileId;
+    const venueProfileId = participantType === 'venue' ? participantProfileId : currentUserProfileId;
+
+    // Find existing match using user IDs
+    let match = await this.matchModel
+      .findOne({
+        artistUser: artistUserId,
+        venueUser: venueUserId,
+        status: { $ne: 'blocked' },
+      })
+      .exec();
+
+    // If match exists, return conversation info
+    if (match) {
+      return {
+        id: match._id.toString(),
+        matchId: match._id.toString(),
+        participantId: participantProfileId,
+        participantUserId,
+        participantType,
+        isMatch: true,
+        lastMessageAt: match.lastMessageAt,
+        lastMessagePreview: match.lastMessagePreview,
+      };
+    }
+
+    // No match exists - create a new conversation/match
+    const newMatch = new this.matchModel({
+      artist: artistProfileId ? new Types.ObjectId(artistProfileId) : undefined,
+      venue: venueProfileId ? new Types.ObjectId(venueProfileId) : undefined,
+      artistUser: artistUserId,
+      venueUser: venueUserId,
+      status: 'active',
+      hasMessages: false,
+      unreadCount: { artist: 0, venue: 0 },
+      initiatedBy: userRole as 'artist' | 'venue',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await newMatch.save();
+
+    return {
+      id: newMatch._id.toString(),
+      matchId: newMatch._id.toString(),
+      participantId: participantProfileId,
+      participantUserId,
+      participantType,
+      isMatch: false,
+      lastMessageAt: null,
+      lastMessagePreview: null,
+    };
   }
 
   /**

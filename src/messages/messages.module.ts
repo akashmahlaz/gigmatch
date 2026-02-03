@@ -8,6 +8,8 @@ import { MessagesGateway } from './messages.gateway';
 import { Message, MessageSchema } from '../schemas/message.schema';
 import { Match, MatchSchema } from '../schemas/match.schema';
 import { User, UserSchema } from '../schemas/user.schema';
+import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
+import { Venue, VenueSchema } from '../venues/schemas/venue.schema';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { User, UserSchema } from '../schemas/user.schema';
       { name: Message.name, schema: MessageSchema },
       { name: Match.name, schema: MatchSchema },
       { name: User.name, schema: UserSchema },
+      { name: Artist.name, schema: ArtistSchema },
+      { name: Venue.name, schema: VenueSchema },
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],

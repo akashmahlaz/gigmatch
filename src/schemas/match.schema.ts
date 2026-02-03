@@ -76,6 +76,28 @@ export class Match {
   @Prop({ enum: ['artist', 'venue'] })
   initiatedBy?: 'artist' | 'venue';
 
+  // Mute settings per user
+  @Prop(
+    raw({
+      artist: { type: Boolean, default: false },
+      venue: { type: Boolean, default: false },
+    }),
+  )
+  isMuted: {
+    artist: boolean;
+    venue: boolean;
+  };
+
+  // Block info
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  blockedBy?: Types.ObjectId;
+
+  @Prop()
+  blockedAt?: Date;
+
+  @Prop()
+  blockReason?: string;
+
   // Timestamps
   createdAt?: Date;
   updatedAt?: Date;
