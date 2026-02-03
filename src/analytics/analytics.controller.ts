@@ -138,7 +138,7 @@ export class AnalyticsController {
   ) {
     const userId = req.user.userId || req.user._id || req.user.sub;
     const userType = req.user.role || 'artist';
-    
+
     // Track based on event type
     if (body.eventType === 'profile_view' && body.data?.targetUserId) {
       await this.analyticsService.trackProfileView(
@@ -148,8 +148,43 @@ export class AnalyticsController {
         body.data.source || 'discovery',
       );
     }
-    
+
     return { success: true };
+  }
+
+  /// POST /analytics/track/batch - Track multiple analytics events
+  @Post('track/batch')
+  @ApiOperation({ summary: 'Track multiple analytics events in batch' })
+  async trackBatchEvents(
+    @Req() req: any,
+    @Body() body: { events: Array<{ eventType: string; data?: Record<string, any> }> },
+  ) {
+    const userId = req.user.userId || req.user._id || req.user.sub;
+    const userType = req.user.role || 'artist';
+
+    const eventsWithUser = body.events.map((event) => ({
+      eventType: event.eventType,
+      userId,
+      userType,
+      data: event.data || {},
+    }));
+
+    const result = await this.analyticsService.trackBatchEvents(eventsWithUser);
+    return { success: result.success, tracked: result.tracked };
+  }
+
+  /// GET /analytics/reviews - Get review analytics
+  @Get('reviews')
+  @ApiOperation({ summary: 'Get review analytics' })
+  @ApiQuery({ name: 'period', required: false, description: 'Period: day, week, month, quarter, year' })
+  async getReviewAnalytics(
+    @Req() req: any,
+    @Query('period') period: string = 'month',
+  ): Promise<{ success: boolean; data: any }> {
+    const userId = req.user.userId || req.user._id || req.user.sub;
+    const dateRange = this.getDateRange(period);
+    const data = await this.analyticsService.getReviewAnalytics(userId, dateRange);
+    return { success: true, data };
   }
 
   /// Helper: Get date range from period string
@@ -167,11 +202,18 @@ export class AnalyticsController {
         start = new Date(now);
         start.setDate(start.getDate() - 7);
         break;
+      case 'month':
+        start = new Date(now);
+        start.setMonth(start.getMonth() - 1);
+        break;
+      case 'quarter':
+        start = new Date(now);
+        start.setMonth(start.getMonth() - 3);
+        break;
       case 'year':
         start = new Date(now);
         start.setFullYear(start.getFullYear() - 1);
         break;
-      case 'month':
       default:
         start = new Date(now);
         start.setMonth(start.getMonth() - 1);

@@ -769,6 +769,106 @@ export class AnalyticsService {
     await event.save();
   }
 
+  /// Track multiple events in batch
+  async trackBatchEvents(
+    events: Array<{
+      eventType: string;
+      userId: string;
+      userType: string;
+      data: Record<string, any>;
+    }>,
+  ): Promise<{ success: boolean; tracked: number }> {
+    if (events.length === 0) {
+      return { success: true, tracked: 0 };
+    }
+
+    const now = new Date();
+    const eventDocuments = events.map((event) => ({
+      eventType: event.eventType,
+      userId: event.userId,
+      userType: event.userType,
+      data: event.data,
+      timestamp: now,
+    }));
+
+    await this.analyticsEventModel.insertMany(eventDocuments);
+    return { success: true, tracked: events.length };
+  }
+
+  /// Get review analytics for a user
+  async getReviewAnalytics(
+    userId: string,
+    dateRange: DateRange,
+  ): Promise<{
+    reviewsGiven: number;
+    reviewsReceived: number;
+    averageRatingGiven: number;
+    averageRatingReceived: number;
+    ratingDistributionGiven: Record<number, number>;
+    ratingDistributionReceived: Record<number, number>;
+    totalResponsesGiven: number;
+    totalResponsesReceived: number;
+    helpfulCountGiven: number;
+    helpfulCountReceived: number;
+  }> {
+    const userIdObj = new Types.ObjectId(userId);
+
+    // Reviews given by user
+    const reviewsGiven = await this.reviewModel
+      .find({
+        reviewerId: userIdObj,
+        createdAt: { $gte: dateRange.start, $lte: dateRange.end },
+      })
+      .exec();
+
+    const reviewsGivenCount = reviewsGiven.length;
+    const avgRatingGiven =
+      reviewsGivenCount > 0
+        ? reviewsGiven.reduce((sum, r) => sum + r.overallRating, 0) /
+          reviewsGivenCount
+        : 0;
+
+    const ratingDistributionGiven: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    reviewsGiven.forEach((r) => {
+      const rating = r.overallRating as 1 | 2 | 3 | 4 | 5;
+      ratingDistributionGiven[rating]++;
+    });
+
+    // Reviews received by user
+    const reviewsReceived = await this.reviewModel
+      .find({
+        targetId: userIdObj,
+        createdAt: { $gte: dateRange.start, $lte: dateRange.end },
+      })
+      .exec();
+
+    const reviewsReceivedCount = reviewsReceived.length;
+    const avgRatingReceived =
+      reviewsReceivedCount > 0
+        ? reviewsReceived.reduce((sum, r) => sum + r.overallRating, 0) /
+          reviewsReceivedCount
+        : 0;
+
+    const ratingDistributionReceived: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    reviewsReceived.forEach((r) => {
+      const rating = r.overallRating as 1 | 2 | 3 | 4 | 5;
+      ratingDistributionReceived[rating]++;
+    });
+
+    return {
+      reviewsGiven: reviewsGivenCount,
+      reviewsReceived: reviewsReceivedCount,
+      averageRatingGiven: Math.round(avgRatingGiven * 10) / 10,
+      averageRatingReceived: Math.round(avgRatingReceived * 10) / 10,
+      ratingDistributionGiven,
+      ratingDistributionReceived,
+      totalResponsesGiven: reviewsGiven.filter((r) => r.response != null).length,
+      totalResponsesReceived: reviewsReceived.filter((r) => r.response != null).length,
+      helpfulCountGiven: reviewsGiven.reduce((sum, r) => sum + r.helpfulCount, 0),
+      helpfulCountReceived: reviewsReceived.reduce((sum, r) => sum + r.helpfulCount, 0),
+    };
+  }
+
   /// Export analytics data
   async exportAnalytics(
     userId: string,

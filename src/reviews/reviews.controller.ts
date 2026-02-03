@@ -112,12 +112,30 @@ export class ReviewsController {
   }
 
   /**
-   * Get my written reviews
+   * Get reviews I have written (given)
+   * This is the same as /reviews/me but named explicitly for clarity
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('given')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get reviews I have written' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiResponse({ status: 200, description: 'Given reviews retrieved' })
+  async getGivenReviews(
+    @CurrentUser() user: UserPayload,
+    @Query() query: GetReviewsQueryDto,
+  ) {
+    return this.reviewsService.getMyReviews(user._id.toString(), query);
+  }
+
+  /**
+   * Get my written reviews (alias for /given)
    */
   @UseGuards(JwtAuthGuard)
   @Get('me')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get reviews I have written' })
+  @ApiOperation({ summary: 'Get reviews I have written (alias for /given)' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiResponse({ status: 200, description: 'My reviews retrieved' })
