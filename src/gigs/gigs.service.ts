@@ -4,11 +4,10 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
-  Inject,
-  forwardRef,
+  Logger,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { InjectModel, InjectConnection } from '@nestjs/mongoose';
+import { Model, Types, Connection } from 'mongoose';
 
 import { Gig, GigDocument } from '../schemas/gig.schema';
 import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
@@ -33,6 +32,8 @@ type PaginatedResult<T> = {
 
 @Injectable()
 export class GigsService {
+  private readonly logger = new Logger(GigsService.name);
+
   constructor(
     @InjectModel(Gig.name) private readonly gigModel: Model<GigDocument>,
     @InjectModel(Venue.name) private readonly venueModel: Model<VenueDocument>,
@@ -41,6 +42,7 @@ export class GigsService {
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Booking.name)
     private readonly bookingModel: Model<BookingDocument>,
+    @InjectConnection() private readonly connection: Connection,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -116,6 +118,7 @@ export class GigsService {
       paymentType: dto.paymentType ?? 'fixed',
 
       status,
+      gigType: dto.gigType ?? 'live_performance',
 
       location: {
         venueAddress: dto.location.venueAddress,
@@ -137,6 +140,8 @@ export class GigsService {
         providesDrinks: dto.perks?.providesDrinks ?? false,
         providesAccommodation: dto.perks?.providesAccommodation ?? false,
         providesTransport: dto.perks?.providesTransport ?? false,
+        providesEquipment: dto.perks?.providesEquipment ?? false,
+        providesParking: dto.perks?.providesParking ?? false,
         additionalPerks: dto.perks?.additionalPerks ?? [],
       },
 
@@ -403,9 +408,14 @@ export class GigsService {
   }
 
   /**
-   * Artist accepts a gig offer (application was already accepted by venue)
+   * Artist confirms they accept the gig offer (application was already accepted by venue).
+   * This confirms the existing booking created by acceptApplicationAndCreateBooking.
+   * Returns the booking that was confirmed.
    */
-  async acceptGig(artistUserId: string, gigId: string): Promise<GigDocument> {
+  async confirmGigBooking(
+    artistUserId: string,
+    gigId: string,
+  ): Promise<BookingDocument> {
     const artist = await this.artistModel
       .findOne({ userId: new Types.ObjectId(artistUserId) })
       .exec();
@@ -420,6 +430,7 @@ export class GigsService {
       throw new NotFoundException('Gig not found');
     }
 
+    // Check artist has an accepted application
     const application = gig.applications.find(
       (app) =>
         app.artist.toString() === artist._id.toString() &&
@@ -432,20 +443,50 @@ export class GigsService {
       );
     }
 
-    const alreadyBooked = gig.bookedArtists.some(
-      (id) => id.toString() === artist._id.toString(),
-    );
+    // Find the pending booking for this gig and artist
+    const booking = await this.bookingModel
+      .findOne({
+        gig: new Types.ObjectId(gigId),
+        artist: artist._id,
+        status: 'pending',
+      })
+      .exec();
 
-    if (!alreadyBooked) {
-      gig.bookedArtists.push(artist._id as Types.ObjectId);
+    if (!booking) {
+      throw new NotFoundException(
+        'No pending booking found for this gig. The venue may need to accept your application first.',
+      );
     }
 
-    if (gig.bookedArtists.length >= gig.artistsNeeded) {
-      gig.status = 'filled';
-      gig.acceptingApplications = false;
+    // Artist confirms their side of the booking
+    booking.artistConfirmed = true;
+    booking.artistConfirmedAt = new Date();
+
+    // Both confirmed = booking confirmed
+    if (booking.venueConfirmed && booking.artistConfirmed) {
+      booking.status = 'confirmed';
     }
 
-    await gig.save();
+    await booking.save();
+
+    // Notify venue of confirmation
+    await this.notificationsService.sendNotification({
+      userId: booking.venueUser.toString(),
+      type: 'booking_confirmation',
+      title: 'Artist Confirmed!',
+      body: `${artist.stageName ?? 'The artist'} has confirmed the booking for "${gig.title}"`,
+      deepLink: `/booking/${booking._id.toString()}`,
+    });
+
+    return booking;
+  }
+
+  /**
+   * @deprecated Use confirmGigBooking instead. This method is kept for backward compatibility.
+   */
+  async acceptGig(artistUserId: string, gigId: string): Promise<GigDocument> {
+    // Call the new method and return the gig for backward compatibility
+    await this.confirmGigBooking(artistUserId, gigId);
 
     return this.gigModel
       .findById(gigId)
@@ -459,7 +500,7 @@ export class GigsService {
   async declineGig(
     artistUserId: string,
     gigId: string,
-    reason?: string,
+    _reason?: string,
   ): Promise<void> {
     const artist = await this.artistModel
       .findOne({ userId: new Types.ObjectId(artistUserId) })
@@ -485,6 +526,56 @@ export class GigsService {
 
     application.status = 'withdrawn';
     await gig.save();
+  }
+
+  /**
+   * Artist withdraws a pending application before venue decision
+   */
+  async withdrawApplication(
+    artistUserId: string,
+    gigId: string,
+    reason?: string,
+  ): Promise<GigDocument> {
+    const artist = await this.artistModel
+      .findOne({ userId: new Types.ObjectId(artistUserId) })
+      .exec();
+
+    if (!artist) {
+      throw new NotFoundException('Artist profile not found');
+    }
+
+    const gig = await this.gigModel.findById(gigId).exec();
+
+    if (!gig) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    const application = gig.applications.find(
+      (app) => app.artist.toString() === artist._id.toString(),
+    );
+
+    if (!application) {
+      throw new BadRequestException('No application found for this gig.');
+    }
+
+    if (application.status !== 'pending') {
+      throw new BadRequestException(
+        `Cannot withdraw application with status '${application.status}'. Only pending applications can be withdrawn.`,
+      );
+    }
+
+    application.status = 'withdrawn';
+    gig.applicationCount = Math.max(0, (gig.applicationCount || 1) - 1);
+    await gig.save();
+
+    this.logger.log(
+      `Artist ${artist._id.toString()} withdrew application from gig ${gigId}${reason ? `: ${reason}` : ''}`,
+    );
+
+    return this.gigModel
+      .findById(gigId)
+      .populate('venue', 'venueName venueType coverPhoto location')
+      .exec() as Promise<GigDocument>;
   }
 
   /**
@@ -717,7 +808,7 @@ export class GigsService {
   }
 
   /**
-   * Accept an application and auto-create a booking
+   * Accept an application and auto-create a booking (with transaction)
    */
   async acceptApplicationAndCreateBooking(
     venueUserId: string,
@@ -728,102 +819,129 @@ export class GigsService {
     endTime?: string,
     specialRequests?: string,
   ): Promise<any> {
-    // Step 1: Validate gig exists and belongs to venue
-    const gig = await this.gigModel.findById(gigId).exec();
-    if (!gig) {
-      throw new NotFoundException('Gig not found');
-    }
-    if (gig.postedBy.toString() !== venueUserId) {
-      throw new ForbiddenException(
-        'You can only accept applications for your own gigs.',
+    const session = await this.connection.startSession();
+
+    try {
+      session.startTransaction();
+
+      // Step 1: Validate gig exists and belongs to venue
+      const gig = await this.gigModel.findById(gigId).session(session).exec();
+      if (!gig) {
+        throw new NotFoundException('Gig not found');
+      }
+      if (gig.postedBy.toString() !== venueUserId) {
+        throw new ForbiddenException(
+          'You can only accept applications for your own gigs.',
+        );
+      }
+
+      // Step 2: Find and update the application
+      const applicationIndex = gig.applications?.findIndex(
+        (a: any) => a.artist.toString() === artistId && a.status === 'pending',
       );
-    }
 
-    // Step 2: Find and update the application
-    const applicationIndex = gig.applications?.findIndex(
-      (a: any) => a.artist.toString() === artistId && a.status === 'pending',
-    );
+      if (applicationIndex === undefined || applicationIndex === -1) {
+        throw new BadRequestException(
+          'No pending application found for this artist.',
+        );
+      }
 
-    if (applicationIndex === undefined || applicationIndex === -1) {
-      throw new BadRequestException(
-        'No pending application found for this artist.',
+      // Step 3: Update application status
+      gig.applications[applicationIndex].status = 'accepted';
+
+      // Step 4: Add to booked artists
+      if (!gig.bookedArtists) {
+        gig.bookedArtists = [];
+      }
+      const alreadyBooked = gig.bookedArtists.some(
+        (id) => id.toString() === artistId,
       );
+      if (!alreadyBooked) {
+        gig.bookedArtists.push(new Types.ObjectId(artistId));
+      }
+
+      // Step 5: Update gig status if all positions filled
+      if (gig.bookedArtists.length >= gig.artistsNeeded) {
+        gig.status = 'filled';
+        gig.acceptingApplications = false;
+      }
+
+      await gig.save({ session });
+
+      // Step 6: Get artist and venue details for booking
+      const artist = await this.artistModel
+        .findById(artistId)
+        .session(session)
+        .exec();
+      const venue = await this.venueModel
+        .findById(gig.venue)
+        .session(session)
+        .exec();
+
+      if (!artist || !venue) {
+        throw new NotFoundException('Artist or venue not found');
+      }
+
+      // Step 7: Create the booking
+      const booking = new this.bookingModel({
+        artist: new Types.ObjectId(artistId),
+        venue: gig.venue,
+        artistUser: artist.userId,
+        venueUser: new Types.ObjectId(venueUserId),
+        gig: new Types.ObjectId(gigId),
+        title: gig.title,
+        description: gig.description,
+        date: gig.date,
+        startTime: startTime,
+        endTime: endTime || gig.endTime,
+        durationMinutes: gig.durationMinutes || 60,
+        numberOfSets: gig.numberOfSets || 1,
+        agreedAmount: agreedAmount,
+        currency: gig.currency || 'USD',
+        payment: {
+          depositAmount: agreedAmount * 0.25, // 25% deposit
+          depositPaid: false,
+          finalPaid: false,
+        },
+        specialRequests: specialRequests,
+        status: 'pending',
+        artistConfirmed: false,
+        venueConfirmed: true, // Venue confirms by accepting
+        venueConfirmedAt: new Date(),
+      });
+
+      await booking.save({ session });
+
+      // Commit the transaction
+      await session.commitTransaction();
+
+      this.logger.log(
+        `Application accepted and booking ${booking._id.toString()} created for gig ${gigId}`,
+      );
+
+      // Step 8: Send notification to artist (outside transaction)
+      await this.notificationsService.sendNotification({
+        userId: artist.userId.toString(),
+        type: 'gig_confirmation',
+        title: 'Application Accepted!',
+        body: `Your application to "${gig.title}" at ${venue.venueName} was accepted!`,
+        deepLink: `/booking/${booking._id.toString()}`,
+      });
+
+      return {
+        message: 'Application accepted and booking created',
+        gig: await this.getGigById(gigId),
+        booking: booking,
+      };
+    } catch (error) {
+      await session.abortTransaction();
+      this.logger.error(
+        `Failed to accept application for gig ${gigId}: ${String(error)}`,
+      );
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    // Step 3: Update application status
-    gig.applications[applicationIndex].status = 'accepted';
-
-    // Step 4: Add to booked artists
-    if (!gig.bookedArtists) {
-      gig.bookedArtists = [];
-    }
-    const alreadyBooked = gig.bookedArtists.some(
-      (id) => id.toString() === artistId,
-    );
-    if (!alreadyBooked) {
-      gig.bookedArtists.push(new Types.ObjectId(artistId));
-    }
-
-    // Step 5: Update gig status if all positions filled
-    if (gig.bookedArtists.length >= gig.artistsNeeded) {
-      gig.status = 'filled';
-      gig.acceptingApplications = false;
-    }
-
-    await gig.save();
-
-    // Step 6: Get artist and venue details for booking
-    const artist = await this.artistModel.findById(artistId).exec();
-    const venue = await this.venueModel.findById(gig.venue).exec();
-
-    if (!artist || !venue) {
-      throw new NotFoundException('Artist or venue not found');
-    }
-
-    // Step 7: Create the booking
-    const booking = new this.bookingModel({
-      artist: new Types.ObjectId(artistId),
-      venue: gig.venue,
-      artistUser: artist.userId,
-      venueUser: new Types.ObjectId(venueUserId),
-      gig: new Types.ObjectId(gigId),
-      title: gig.title,
-      description: gig.description,
-      date: gig.date,
-      startTime: startTime,
-      endTime: endTime || gig.endTime,
-      durationMinutes: gig.durationMinutes || 60,
-      numberOfSets: gig.numberOfSets || 1,
-      agreedAmount: agreedAmount,
-      currency: gig.currency || 'USD',
-      payment: {
-        depositAmount: agreedAmount * 0.25, // 25% deposit
-        depositPaid: false,
-        finalPaid: false,
-      },
-      specialRequests: specialRequests,
-      status: 'pending',
-      artistConfirmed: false,
-      venueConfirmed: true, // Venue confirms by accepting
-      venueConfirmedAt: new Date(),
-    });
-
-    await booking.save();
-
-    // Step 8: Send notification to artist
-    await this.notificationsService.sendNotification({
-      userId: artist.userId.toString(),
-      type: 'gig_confirmation',
-      title: 'Application Accepted!',
-      body: `Your application to "${gig.title}" at ${venue.venueName} was accepted!`,
-      deepLink: `/booking/${booking._id}`,
-    });
-
-    return {
-      message: 'Application accepted and booking created',
-      gig: await this.getGigById(gigId),
-      booking: booking,
-    };
   }
 
   /**
@@ -874,6 +992,29 @@ export class GigsService {
       .findById(gigId)
       .populate('venue', 'venueName venueType coverPhoto location')
       .exec() as Promise<GigDocument>;
+  }
+
+  /**
+   * Increment view count for a gig (called when user views gig details)
+   */
+  async incrementViewCount(gigId: string): Promise<{ viewCount: number }> {
+    if (!Types.ObjectId.isValid(gigId)) {
+      throw new BadRequestException('Invalid gig ID');
+    }
+
+    const result = await this.gigModel
+      .findByIdAndUpdate(
+        gigId,
+        { $inc: { viewCount: 1 } },
+        { new: true, select: 'viewCount' },
+      )
+      .exec();
+
+    if (!result) {
+      throw new NotFoundException('Gig not found');
+    }
+
+    return { viewCount: result.viewCount };
   }
 
   // ═══════════════════════════════════════════════════════════════════════

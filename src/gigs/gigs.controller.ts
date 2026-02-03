@@ -194,6 +194,15 @@ export class GigsController {
     return this.gigsService.getGigById(gigId);
   }
 
+  @Post(':id/view')
+  @ApiOperation({ summary: 'Increment view count for a gig' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiResponse({ status: 200, description: 'View count incremented' })
+  @ApiResponse({ status: 404, description: 'Gig not found' })
+  async incrementViewCount(@Param('id') gigId: string) {
+    return this.gigsService.incrementViewCount(gigId);
+  }
+
   @Get(':id/applications')
   @ApiOperation({ summary: 'Get all applications for a gig (venue only)' })
   @ApiParam({ name: 'id', description: 'Gig ID' })
@@ -318,9 +327,11 @@ export class GigsController {
   }
 
   @Post(':id/accept')
-  @ApiOperation({ summary: 'Accept a gig offer (artist only)' })
+  @ApiOperation({
+    summary: 'Accept a gig offer and confirm booking (artist only)',
+  })
   @ApiParam({ name: 'id', description: 'Gig ID' })
-  @ApiResponse({ status: 200, description: 'Gig accepted' })
+  @ApiResponse({ status: 200, description: 'Booking confirmed' })
   async acceptGig(
     @CurrentUser() user: UserPayload,
     @Param('id') gigId: string,
@@ -329,6 +340,69 @@ export class GigsController {
       throw new ForbiddenException('Only artist accounts can accept gigs.');
     }
     return this.gigsService.acceptGig(user._id.toString(), gigId);
+  }
+
+  @Post(':id/confirm-booking')
+  @ApiOperation({
+    summary: 'Confirm booking for accepted gig application (artist only)',
+  })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiResponse({ status: 200, description: 'Booking confirmed by artist' })
+  @ApiResponse({
+    status: 400,
+    description: 'No accepted application or pending booking found',
+  })
+  async confirmGigBooking(
+    @CurrentUser() user: UserPayload,
+    @Param('id') gigId: string,
+  ) {
+    if (user.role !== 'artist' && user.role !== 'admin') {
+      throw new ForbiddenException(
+        'Only artist accounts can confirm bookings.',
+      );
+    }
+    const booking = await this.gigsService.confirmGigBooking(
+      user._id.toString(),
+      gigId,
+    );
+    return { message: 'Booking confirmed', booking };
+  }
+
+  @Post(':id/withdraw')
+  @ApiOperation({ summary: 'Withdraw a pending application (artist only)' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          description: 'Reason for withdrawal (optional)',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Application withdrawn' })
+  @ApiResponse({
+    status: 400,
+    description: 'Cannot withdraw non-pending application',
+  })
+  async withdrawApplication(
+    @CurrentUser() user: UserPayload,
+    @Param('id') gigId: string,
+    @Body() body: { reason?: string },
+  ) {
+    if (user.role !== 'artist' && user.role !== 'admin') {
+      throw new ForbiddenException(
+        'Only artist accounts can withdraw applications.',
+      );
+    }
+    const gig = await this.gigsService.withdrawApplication(
+      user._id.toString(),
+      gigId,
+      body.reason,
+    );
+    return { message: 'Application withdrawn', gig };
   }
 
   @Post(':id/decline')

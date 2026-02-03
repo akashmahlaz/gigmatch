@@ -80,6 +80,16 @@ export class GigPerksDto {
   @IsBoolean()
   providesTransport?: boolean;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  providesEquipment?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  providesParking?: boolean;
+
   @ApiPropertyOptional({ type: [String], default: [] })
   @IsOptional()
   @IsArray()
@@ -180,8 +190,7 @@ export class CreateGigDto {
   paymentType?: 'fixed' | 'negotiable' | 'per_hour';
 
   @ApiProperty({
-    description:
-      'Gig location (exact coordinates required for geo discovery).',
+    description: 'Gig location (exact coordinates required for geo discovery).',
     type: GigLocationDto,
   })
   @ValidateNested()
@@ -222,6 +231,47 @@ export class CreateGigDto {
   @IsOptional()
   @IsEnum(['draft', 'open'])
   status?: 'draft' | 'open';
+
+  @ApiPropertyOptional({
+    enum: [
+      'live_performance',
+      'dj_set',
+      'acoustic',
+      'band',
+      'solo',
+      'corporate',
+      'wedding',
+      'private_party',
+      'festival',
+      'other',
+    ],
+    default: 'live_performance',
+    description: 'Type of gig / event format',
+  })
+  @IsOptional()
+  @IsEnum([
+    'live_performance',
+    'dj_set',
+    'acoustic',
+    'band',
+    'solo',
+    'corporate',
+    'wedding',
+    'private_party',
+    'festival',
+    'other',
+  ])
+  gigType?:
+    | 'live_performance'
+    | 'dj_set'
+    | 'acoustic'
+    | 'band'
+    | 'solo'
+    | 'corporate'
+    | 'wedding'
+    | 'private_party'
+    | 'festival'
+    | 'other';
 }
 
 export class UpdateGigDto {

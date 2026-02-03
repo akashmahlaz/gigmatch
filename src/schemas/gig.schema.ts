@@ -58,6 +58,24 @@ export class Gig {
   @Prop({ default: 1 })
   artistsNeeded: number;
 
+  // Gig Type (e.g., 'live_performance', 'dj_set', 'acoustic', 'band', 'solo', 'other')
+  @Prop({
+    enum: [
+      'live_performance',
+      'dj_set',
+      'acoustic',
+      'band',
+      'solo',
+      'corporate',
+      'wedding',
+      'private_party',
+      'festival',
+      'other',
+    ],
+    default: 'live_performance',
+  })
+  gigType: string;
+
   // Budget
   @Prop({ required: true })
   budget: number;
@@ -151,18 +169,22 @@ export class Gig {
   // Perks
   @Prop(
     raw({
+      providesEquipment: { type: Boolean, default: false },
       providesFood: { type: Boolean, default: false },
       providesDrinks: { type: Boolean, default: false },
       providesAccommodation: { type: Boolean, default: false },
       providesTransport: { type: Boolean, default: false },
+      providesParking: { type: Boolean, default: false },
       additionalPerks: { type: [String], default: [] },
     }),
   )
   perks: {
+    providesEquipment: boolean;
     providesFood: boolean;
     providesDrinks: boolean;
     providesAccommodation: boolean;
     providesTransport: boolean;
+    providesParking: boolean;
     additionalPerks: string[];
   };
 
@@ -187,15 +209,25 @@ export class Gig {
 
 export const GigSchema = SchemaFactory.createForClass(Gig);
 
-// Indexes for search and discovery
+// ═══════════════════════════════════════════════════════════════════════════
+// INDEXES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Basic indexes
 GigSchema.index({ venue: 1 });
 GigSchema.index({ date: 1 });
 GigSchema.index({ status: 1 });
 GigSchema.index({ requiredGenres: 1 });
 GigSchema.index({ budget: 1 });
-GigSchema.index({ 'applications.artist': 1 });
 GigSchema.index({ bookedArtists: 1 });
 GigSchema.index({ createdAt: -1 });
+
+// Compound indexes for common queries
+GigSchema.index({ status: 1, date: 1 }); // Upcoming open gigs
+GigSchema.index({ status: 1, acceptingApplications: 1 }); // Open gigs accepting applications
+GigSchema.index({ 'applications.artist': 1, 'applications.status': 1 }); // Artist's applications by status
+GigSchema.index({ postedBy: 1, status: 1 }); // Venue's gigs by status
+GigSchema.index({ gigType: 1, status: 1 }); // Gigs by type
 
 // Geospatial index for radius-based discovery ($near)
 GigSchema.index({ 'location.geo': '2dsphere' });
