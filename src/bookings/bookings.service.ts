@@ -16,10 +16,7 @@ import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import { Match, MatchDocument } from '../matches/schemas/match.schema';
 import { NotificationsService } from '../notifications/notifications.service';
-import {
-  CreateBookingDto,
-  BookingQueryDto,
-} from './dto/booking.dto';
+import { CreateBookingDto, BookingQueryDto } from './dto/booking.dto';
 
 @Injectable()
 export class BookingsService {
@@ -48,7 +45,7 @@ export class BookingsService {
   async create(
     dto: CreateBookingDto,
     userId: string,
-    userRole: 'artist' | 'venue',
+    _userRole: 'artist' | 'venue',
   ): Promise<Booking> {
     // Get artist and venue
     const artist = await this.artistModel.findById(dto.artistId);
@@ -420,7 +417,9 @@ export class BookingsService {
     }
 
     if (booking.status !== 'deposit_paid' && booking.status !== 'confirmed') {
-      throw new BadRequestException('Booking must have deposit paid or be confirmed');
+      throw new BadRequestException(
+        'Booking must have deposit paid or be confirmed',
+      );
     }
 
     if (booking.payment?.finalPaid) {
@@ -428,7 +427,8 @@ export class BookingsService {
     }
 
     // Calculate remaining balance (total - deposit)
-    const depositAmount = booking.payment?.depositAmount || booking.agreedAmount * 0.25;
+    const depositAmount =
+      booking.payment?.depositAmount || booking.agreedAmount * 0.25;
     const remainingAmount = booking.agreedAmount - depositAmount;
     const amount = Math.round(remainingAmount * 100); // cents
 
@@ -517,10 +517,10 @@ export class BookingsService {
     const booking = await this.findById(bookingId);
 
     // Check authorization
-    if (
-      booking.artistUser.toString() !== userId &&
-      booking.venueUser.toString() !== userId
-    ) {
+    const isArtist = booking.artistUser.toString() === userId;
+    const isVenueOwner = booking.venueUser.toString() === userId;
+
+    if (!isArtist && !isVenueOwner) {
       throw new ForbiddenException('Not authorized');
     }
 
@@ -528,9 +528,127 @@ export class BookingsService {
       throw new BadRequestException('No contract uploaded');
     }
 
-    booking.contractSigned = true;
+    // Track which party signed
+    if (isArtist && !booking.artistSigned) {
+      booking.artistSigned = true;
+      booking.artistSignedAt = new Date();
+    } else if (isVenueOwner && !booking.venueSigned) {
+      booking.venueSigned = true;
+      booking.venueSignedAt = new Date();
+    }
+
+    // Check if both parties have now signed
+    if (booking.artistSigned && booking.venueSigned) {
+      booking.contractSigned = true;
+      booking.contractSignedAt = new Date();
+
+      // Notify both parties that contract is fully signed
+      await this.notificationsService.sendNotification({
+        userId: booking.artistUser.toString(),
+        type: 'booking_confirmation',
+        title: 'Contract Fully Signed!',
+        body: `The contract for "${booking.title}" has been signed by both parties.`,
+        deepLink: `/booking/${(booking as BookingDocument).id}`,
+      });
+      await this.notificationsService.sendNotification({
+        userId: booking.venueUser.toString(),
+        type: 'booking_confirmation',
+        title: 'Contract Fully Signed!',
+        body: `The contract for "${booking.title}" has been signed by both parties.`,
+        deepLink: `/booking/${(booking as BookingDocument).id}`,
+      });
+    } else {
+      // Notify the other party that one has signed
+      const recipientId = isArtist
+        ? booking.venueUser.toString()
+        : booking.artistUser.toString();
+      const signerRole = isArtist ? 'artist' : 'venue';
+
+      await this.notificationsService.sendNotification({
+        userId: recipientId,
+        type: 'booking_confirmation',
+        title: 'Contract Signed',
+        body: `The ${signerRole} has signed the contract for "${booking.title}". Your signature is needed.`,
+        deepLink: `/booking/${(booking as BookingDocument).id}`,
+      });
+    }
+
     await (booking as BookingDocument).save();
 
     return booking;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CALENDAR & UPCOMING
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get upcoming bookings for the next N days
+   */
+  async getUpcomingBookings(userId: string, days: number): Promise<Booking[]> {
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + days);
+
+    return this.bookingModel
+      .find({
+        $or: [
+          { artistUser: new Types.ObjectId(userId) },
+          { venueUser: new Types.ObjectId(userId) },
+        ],
+        date: { $gte: new Date(), $lte: endDate },
+        status: { $nin: ['cancelled', 'disputed'] },
+      })
+      .populate('artist', 'stageName profilePhoto averageRating')
+      .populate('venue', 'venueName profilePhoto location')
+      .sort({ date: 1 })
+      .exec();
+  }
+
+  /**
+   * Get bookings grouped by date for calendar view
+   */
+  async getCalendarBookings(
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<Record<string, Booking[]>> {
+    const bookings = await this.bookingModel
+      .find({
+        $or: [
+          { artistUser: new Types.ObjectId(userId) },
+          { venueUser: new Types.ObjectId(userId) },
+        ],
+        date: { $gte: startDate, $lte: endDate },
+      })
+      .populate('artist', 'stageName profilePhoto')
+      .populate('venue', 'venueName location')
+      .sort({ date: 1, startTime: 1 })
+      .exec();
+
+    // Group by date
+    const grouped: Record<string, Booking[]> = {};
+    for (const booking of bookings) {
+      const dateKey = booking.date.toISOString().split('T')[0];
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = [];
+      }
+      grouped[dateKey].push(booking);
+    }
+
+    return grouped;
+  }
+
+  /**
+   * Check if both parties have signed the contract
+   */
+  async checkContractCompletion(bookingId: string): Promise<boolean> {
+    const booking = await this.bookingModel.findById(bookingId).exec();
+    if (!booking) return false;
+
+    return !!(
+      booking.contractSigned &&
+      booking.artistSigned &&
+      booking.venueSigned
+    );
   }
 }

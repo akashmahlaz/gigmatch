@@ -28,6 +28,7 @@ import { EmailModule } from './email/email.module';
 import { PostsModule } from './posts/posts.module';
 import { StoriesModule } from './stories/stories.module';
 import { WalletModule } from './wallet/wallet.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -122,6 +123,7 @@ import { WalletModule } from './wallet/wallet.module';
     SubscriptionModule,
     AnalyticsModule,
     WalletModule,
+    WebhooksModule,
   ],
 })
 export class AppModule {}

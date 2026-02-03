@@ -48,10 +48,7 @@ export class GigsController {
   @ApiOperation({ summary: 'Create a gig (venue only)' })
   @ApiResponse({ status: 201, description: 'Gig created' })
   @ApiResponse({ status: 403, description: 'Forbidden - venue role required' })
-  async createGig(
-    @CurrentUser() user: UserPayload,
-    @Body() dto: CreateGigDto,
-  ) {
+  async createGig(@CurrentUser() user: UserPayload, @Body() dto: CreateGigDto) {
     if (user.role !== 'venue' && user.role !== 'admin') {
       throw new ForbiddenException('Only venue accounts can create gigs.');
     }
@@ -137,12 +134,35 @@ export class GigsController {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // APPLICATION MANAGEMENT (must be before :id routes)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Get('my-applications')
+  @ApiOperation({ summary: 'Get my gig applications (artist only)' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['pending', 'accepted', 'rejected'],
+  })
+  @ApiResponse({ status: 200, description: 'Applications returned' })
+  async getMyApplications(
+    @CurrentUser() user: UserPayload,
+    @Query('status') status?: 'pending' | 'accepted' | 'rejected',
+  ) {
+    if (user.role !== 'artist' && user.role !== 'admin') {
+      throw new ForbiddenException('Only artists can view their applications.');
+    }
+    return this.gigsService.getArtistApplications(user._id.toString(), status);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // SHARED ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════════
 
   @Get('discover')
   @ApiOperation({
-    summary: 'Discover gigs for artists (geo + genres). Defaults to artist profile.',
+    summary:
+      'Discover gigs for artists (geo + genres). Defaults to artist profile.',
   })
   @ApiQuery({ name: 'genres', required: false, type: [String] })
   @ApiQuery({ name: 'latitude', required: false, type: Number })
@@ -172,6 +192,109 @@ export class GigsController {
   @ApiResponse({ status: 404, description: 'Gig not found' })
   async getGigById(@Param('id') gigId: string) {
     return this.gigsService.getGigById(gigId);
+  }
+
+  @Get(':id/applications')
+  @ApiOperation({ summary: 'Get all applications for a gig (venue only)' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiResponse({ status: 200, description: 'Applications returned' })
+  @ApiResponse({ status: 403, description: 'Forbidden - not venue owner' })
+  async getGigApplications(
+    @CurrentUser() user: UserPayload,
+    @Param('id') gigId: string,
+  ) {
+    if (user.role !== 'venue' && user.role !== 'admin') {
+      throw new ForbiddenException('Only venues can view applications.');
+    }
+    return this.gigsService.getGigApplications(user._id.toString(), gigId);
+  }
+
+  @Get(':id/application-count')
+  @ApiOperation({ summary: 'Get pending application count' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  async getApplicationCount(@Param('id') gigId: string) {
+    const count = await this.gigsService.getApplicationCount(gigId);
+    return { pendingApplications: count };
+  }
+
+  @Post(':id/create-booking-from-application')
+  @ApiOperation({ summary: 'Accept application and create booking' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['artistId', 'agreedAmount', 'startTime'],
+      properties: {
+        artistId: { type: 'string', description: 'Artist ID to accept' },
+        agreedAmount: { type: 'number', description: 'Final agreed amount' },
+        startTime: { type: 'string', description: 'Gig start time' },
+        endTime: { type: 'string', description: 'Gig end time (optional)' },
+        specialRequests: {
+          type: 'string',
+          description: 'Any special requests',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Booking created' })
+  @ApiResponse({ status: 400, description: 'Invalid request' })
+  async acceptApplicationAndCreateBooking(
+    @CurrentUser() user: UserPayload,
+    @Param('id') gigId: string,
+    @Body()
+    body: {
+      artistId: string;
+      agreedAmount: number;
+      startTime: string;
+      endTime?: string;
+      specialRequests?: string;
+    },
+  ) {
+    if (user.role !== 'venue' && user.role !== 'admin') {
+      throw new ForbiddenException('Only venues can accept applications.');
+    }
+    return this.gigsService.acceptApplicationAndCreateBooking(
+      user._id.toString(),
+      gigId,
+      body.artistId,
+      body.agreedAmount,
+      body.startTime,
+      body.endTime,
+      body.specialRequests,
+    );
+  }
+
+  @Post(':id/decline-application')
+  @ApiOperation({ summary: 'Decline an application (venue only)' })
+  @ApiParam({ name: 'id', description: 'Gig ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['artistId'],
+      properties: {
+        artistId: { type: 'string', description: 'Artist ID to decline' },
+        reason: {
+          type: 'string',
+          description: 'Reason for decline (optional)',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Application declined' })
+  async declineApplication(
+    @CurrentUser() user: UserPayload,
+    @Param('id') gigId: string,
+    @Body() body: { artistId: string; reason?: string },
+  ) {
+    if (user.role !== 'venue' && user.role !== 'admin') {
+      throw new ForbiddenException('Only venues can decline applications.');
+    }
+    return this.gigsService.declineApplicationByVenue(
+      user._id.toString(),
+      gigId,
+      body.artistId,
+      body.reason,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -220,11 +343,7 @@ export class GigsController {
     if (user.role !== 'artist' && user.role !== 'admin') {
       throw new ForbiddenException('Only artist accounts can decline gigs.');
     }
-    await this.gigsService.declineGig(
-      user._id.toString(),
-      gigId,
-      dto.reason,
-    );
+    await this.gigsService.declineGig(user._id.toString(), gigId, dto.reason);
     return { message: 'Gig declined' };
   }
 }

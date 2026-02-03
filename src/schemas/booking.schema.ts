@@ -173,6 +173,22 @@ export class Booking {
   @Prop({ default: false })
   contractSigned: boolean;
 
+  // Contract signature tracking (per party)
+  @Prop({ default: false })
+  artistSigned: boolean;
+
+  @Prop()
+  artistSignedAt?: Date;
+
+  @Prop({ default: false })
+  venueSigned: boolean;
+
+  @Prop()
+  venueSignedAt?: Date;
+
+  @Prop()
+  contractSignedAt?: Date;
+
   // Reminder settings
   @Prop({ default: true })
   remindersSent: boolean;
