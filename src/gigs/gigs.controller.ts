@@ -144,15 +144,24 @@ export class GigsController {
     required: false,
     enum: ['pending', 'accepted', 'rejected'],
   })
-  @ApiResponse({ status: 200, description: 'Applications returned' })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number (default: 1)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (default: 20, max: 50)' })
+  @ApiResponse({ status: 200, description: 'Applications returned with pagination' })
   async getMyApplications(
     @CurrentUser() user: UserPayload,
     @Query('status') status?: 'pending' | 'accepted' | 'rejected',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     if (user.role !== 'artist' && user.role !== 'admin') {
       throw new ForbiddenException('Only artists can view their applications.');
     }
-    return this.gigsService.getArtistApplications(user._id.toString(), status);
+    return this.gigsService.getArtistApplications(
+      user._id.toString(),
+      status,
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 20,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -195,9 +204,12 @@ export class GigsController {
   }
 
   @Post(':id/view')
-  @ApiOperation({ summary: 'Increment view count for a gig' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Increment view count for a gig (authenticated users only)' })
   @ApiParam({ name: 'id', description: 'Gig ID' })
   @ApiResponse({ status: 200, description: 'View count incremented' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Gig not found' })
   async incrementViewCount(@Param('id') gigId: string) {
     return this.gigsService.incrementViewCount(gigId);
@@ -328,10 +340,11 @@ export class GigsController {
 
   @Post(':id/accept')
   @ApiOperation({
-    summary: 'Accept a gig offer and confirm booking (artist only)',
+    summary: 'Accept a gig offer and confirm booking (artist only) - DEPRECATED: Use /confirm-booking instead',
+    deprecated: true,
   })
   @ApiParam({ name: 'id', description: 'Gig ID' })
-  @ApiResponse({ status: 200, description: 'Booking confirmed' })
+  @ApiResponse({ status: 200, description: 'Booking confirmed (deprecated, use /confirm-booking)' })
   async acceptGig(
     @CurrentUser() user: UserPayload,
     @Param('id') gigId: string,

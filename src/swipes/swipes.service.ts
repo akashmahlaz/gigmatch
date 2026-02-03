@@ -40,6 +40,10 @@ import { Match, MatchDocument } from '../matches/schemas/match.schema';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
 import { Gig, GigDocument } from '../schemas/gig.schema';
+import {
+  SwipeRateLimit,
+  SwipeRateLimitDocument,
+} from './schemas/rate-limit.schema';
 
 // DTOs
 import {
@@ -70,6 +74,8 @@ export class SwipesService {
     @InjectModel(Artist.name) private artistModel: Model<ArtistDocument>,
     @InjectModel(Venue.name) private venueModel: Model<VenueDocument>,
     @InjectModel(Gig.name) private gigModel: Model<GigDocument>,
+    @InjectModel(SwipeRateLimit.name)
+    private rateLimitModel: Model<SwipeRateLimitDocument>,
     private readonly configService: ConfigService,
   ) {}
 
@@ -184,8 +190,7 @@ export class SwipesService {
       },
     ]);
 
-    // Update daily swipe count for rate limiting
-    await this.incrementSwipeCount(userId, role);
+    // Rate limit is now incremented atomically in checkRateLimit, no separate call needed
 
     this.logger.log(
       `Swipe completed: user=${userId}, target=${dto.targetId}, type=${dto.direction}, result=${result}, time=${Date.now() - startTime}ms`,
@@ -997,19 +1002,35 @@ export class SwipesService {
   }
 
   /**
-   * Check rate limiting for swipes
+   * Check and increment swipe count atomically using MongoDB upsert
+   * This prevents race conditions in rate limiting
    */
   private async checkRateLimit(userId: string, role: UserRole): Promise<void> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const swipeCount = await this.swipeModel.countDocuments({
-      swiperId: new Types.ObjectId(userId),
-      createdAt: { $gte: today },
-    });
-
+    const dateKey = this.getDateKey();
     const maxSwipes = this.maxSwipesPerDay[role] ?? 100;
-    if (swipeCount >= maxSwipes) {
+
+    // Use atomic findOneAndUpdate to check and increment in a single operation
+    const result = await this.rateLimitModel.findOneAndUpdate(
+      {
+        userId: new Types.ObjectId(userId),
+        dateKey,
+      },
+      {
+        $inc: { swipeCount: 1 },
+        $setOnInsert: {
+          userId: new Types.ObjectId(userId),
+          dateKey,
+          role,
+          undoCount: 0,
+        },
+      },
+      {
+        upsert: true,
+        new: true,
+      },
+    );
+
+    if (result.swipeCount > maxSwipes) {
       throw new ForbiddenException(
         `Daily swipe limit reached (${maxSwipes} swipes). Try again tomorrow.`,
       );
@@ -1017,23 +1038,68 @@ export class SwipesService {
   }
 
   /**
-   * Check undo rate limiting
+   * Check undo rate limit atomically
    */
   private async checkUndoRateLimit(userId: string): Promise<void> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const dateKey = this.getDateKey();
 
-    const undoCount = await this.swipeModel.countDocuments({
-      swiperId: new Types.ObjectId(userId),
-      createdAt: { $gte: today },
-      metadata: { $exists: true },
-    });
+    // Use atomic upsert to check and increment undo count
+    const result = await this.rateLimitModel.findOneAndUpdate(
+      {
+        userId: new Types.ObjectId(userId),
+        dateKey,
+      },
+      {
+        $inc: { undoCount: 1 },
+        $setOnInsert: {
+          userId: new Types.ObjectId(userId),
+          dateKey,
+          swipeCount: 0,
+        },
+      },
+      {
+        upsert: true,
+        new: true,
+      },
+    );
 
-    if (undoCount >= this.maxUndoPerDay) {
+    if (result.undoCount >= this.maxUndoPerDay) {
       throw new ForbiddenException(
         `Daily undo limit reached (${this.maxUndoPerDay} undos). Try again tomorrow.`,
       );
     }
+  }
+
+  /**
+   * Get current swipe count for a user
+   */
+  private async getSwipeCount(userId: string): Promise<number> {
+    const dateKey = this.getDateKey();
+    const rateLimit = await this.rateLimitModel.findOne({
+      userId: new Types.ObjectId(userId),
+      dateKey,
+    });
+    return rateLimit?.swipeCount ?? 0;
+  }
+
+  /**
+   * Get current undo count for a user
+   */
+  private async getUndoCount(userId: string): Promise<number> {
+    const dateKey = this.getDateKey();
+    const rateLimit = await this.rateLimitModel.findOne({
+      userId: new Types.ObjectId(userId),
+      dateKey,
+    });
+    return rateLimit?.undoCount ?? 0;
+  }
+
+  /**
+   * Generate date key for rate limiting (YYYY-MM-DD format)
+   */
+  private getDateKey(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   }
 
   /**
@@ -1069,17 +1135,6 @@ export class SwipesService {
     );
 
     return match;
-  }
-
-  /**
-   * Increment daily swipe count (for rate limiting)
-   */
-  private async incrementSwipeCount(
-    userId: string,
-    role: UserRole,
-  ): Promise<void> {
-    // This is handled by the count query, no separate increment needed
-    // The count is calculated on-demand for rate limiting
   }
 
   /**

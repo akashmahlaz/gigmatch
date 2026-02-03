@@ -209,8 +209,6 @@ export class SwipesController {
     return {
       success: true,
       profiles,
-      gigs: feed.gigs,
-      artists: feed.artists,
       total: feed.total,
       page: feed.page,
       limit: pageLimit,

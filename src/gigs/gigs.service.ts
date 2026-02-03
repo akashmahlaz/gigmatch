@@ -416,69 +416,87 @@ export class GigsService {
     artistUserId: string,
     gigId: string,
   ): Promise<BookingDocument> {
-    const artist = await this.artistModel
-      .findOne({ userId: new Types.ObjectId(artistUserId) })
-      .exec();
+    const session = await this.connection.startSession();
 
-    if (!artist) {
-      throw new NotFoundException('Artist profile not found');
-    }
+    try {
+      session.startTransaction();
 
-    const gig = await this.gigModel.findById(gigId).exec();
+      const artist = await this.artistModel
+        .findOne({ userId: new Types.ObjectId(artistUserId) })
+        .session(session)
+        .exec();
 
-    if (!gig) {
-      throw new NotFoundException('Gig not found');
-    }
+      if (!artist) {
+        throw new NotFoundException('Artist profile not found');
+      }
 
-    // Check artist has an accepted application
-    const application = gig.applications.find(
-      (app) =>
-        app.artist.toString() === artist._id.toString() &&
-        app.status === 'accepted',
-    );
+      const gig = await this.gigModel
+        .findById(gigId)
+        .session(session)
+        .exec();
 
-    if (!application) {
-      throw new BadRequestException(
-        'No accepted application found for this gig.',
+      if (!gig) {
+        throw new NotFoundException('Gig not found');
+      }
+
+      // Check artist has an accepted application
+      const application = gig.applications.find(
+        (app) =>
+          app.artist.toString() === artist._id.toString() &&
+          app.status === 'accepted',
       );
+
+      if (!application) {
+        throw new BadRequestException(
+          'No accepted application found for this gig.',
+        );
+      }
+
+      // Find the pending booking for this gig and artist
+      const booking = await this.bookingModel
+        .findOne({
+          gig: new Types.ObjectId(gigId),
+          artist: artist._id,
+          status: 'pending',
+        })
+        .session(session)
+        .exec();
+
+      if (!booking) {
+        throw new NotFoundException(
+          'No pending booking found for this gig. The venue may need to accept your application first.',
+        );
+      }
+
+      // Artist confirms their side of the booking
+      booking.artistConfirmed = true;
+      booking.artistConfirmedAt = new Date();
+
+      // Both confirmed = booking confirmed
+      if (booking.venueConfirmed && booking.artistConfirmed) {
+        booking.status = 'confirmed';
+      }
+
+      await booking.save({ session });
+
+      await session.commitTransaction();
+
+      // Notify venue of confirmation (outside transaction)
+      await this.notificationsService.sendNotification({
+        userId: booking.venueUser.toString(),
+        type: 'booking_confirmation',
+        title: 'Artist Confirmed!',
+        body: `${artist.stageName ?? 'The artist'} has confirmed the booking for "${gig.title}"`,
+        deepLink: `/booking/${booking._id.toString()}`,
+      });
+
+      return booking;
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    // Find the pending booking for this gig and artist
-    const booking = await this.bookingModel
-      .findOne({
-        gig: new Types.ObjectId(gigId),
-        artist: artist._id,
-        status: 'pending',
-      })
-      .exec();
-
-    if (!booking) {
-      throw new NotFoundException(
-        'No pending booking found for this gig. The venue may need to accept your application first.',
-      );
-    }
-
-    // Artist confirms their side of the booking
-    booking.artistConfirmed = true;
-    booking.artistConfirmedAt = new Date();
-
-    // Both confirmed = booking confirmed
-    if (booking.venueConfirmed && booking.artistConfirmed) {
-      booking.status = 'confirmed';
-    }
-
-    await booking.save();
-
-    // Notify venue of confirmation
-    await this.notificationsService.sendNotification({
-      userId: booking.venueUser.toString(),
-      type: 'booking_confirmation',
-      title: 'Artist Confirmed!',
-      body: `${artist.stageName ?? 'The artist'} has confirmed the booking for "${gig.title}"`,
-      deepLink: `/booking/${booking._id.toString()}`,
-    });
-
-    return booking;
   }
 
   /**
@@ -495,12 +513,12 @@ export class GigsService {
   }
 
   /**
-   * Artist declines a gig offer
+   * Artist declines a gig offer (application was already accepted by venue)
    */
   async declineGig(
     artistUserId: string,
     gigId: string,
-    _reason?: string,
+    reason?: string,
   ): Promise<void> {
     const artist = await this.artistModel
       .findOne({ userId: new Types.ObjectId(artistUserId) })
@@ -524,8 +542,18 @@ export class GigsService {
       throw new BadRequestException('No application found for this gig.');
     }
 
-    application.status = 'withdrawn';
+    // Use 'declined' status when artist declines (distinct from 'withdrawn')
+    application.status = 'declined';
     await gig.save();
+
+    // Notify venue that artist declined the offer
+    await this.notificationsService.sendNotification({
+      userId: gig.postedBy.toString(),
+      type: 'booking_declined',
+      title: 'Artist Declined Booking',
+      body: `${artist.stageName ?? 'The artist'} has declined the booking for "${gig.title}".${reason ? ` Reason: ${reason}` : ''}`,
+      deepLink: `/gigs/${gigId}`,
+    });
   }
 
   /**
@@ -760,12 +788,14 @@ export class GigsService {
   }
 
   /**
-   * Get all applications made by an artist
+   * Get all applications made by an artist (with pagination)
    */
   async getArtistApplications(
     artistUserId: string,
     status?: 'pending' | 'accepted' | 'rejected',
-  ): Promise<any[]> {
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<{ applications: any[]; total: number; page: number; pages: number }> {
     const artist = await this.artistModel
       .findOne({ userId: new Types.ObjectId(artistUserId) })
       .exec();
@@ -776,10 +806,16 @@ export class GigsService {
 
     const query: any = { 'applications.artist': artist._id };
 
-    const gigs = await this.gigModel
-      .find(query)
-      .populate('venue', 'venueName venueType coverPhoto location')
-      .exec();
+    const [gigs, total] = await Promise.all([
+      this.gigModel
+        .find(query)
+        .populate('venue', 'venueName venueType coverPhoto location')
+        .sort({ 'applications.appliedAt': -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .exec(),
+      this.gigModel.countDocuments(query).exec(),
+    ]);
 
     // Flatten and map applications
     const applications = gigs.flatMap((gig: any) => {
@@ -804,7 +840,12 @@ export class GigsService {
         }));
     });
 
-    return applications;
+    return {
+      applications,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+    };
   }
 
   /**
@@ -974,6 +1015,8 @@ export class GigsService {
     }
 
     application.status = 'rejected';
+    // Decrement applicationCount to reflect accurate pending count
+    gig.applicationCount = Math.max(0, (gig.applicationCount || 1) - 1);
     await gig.save();
 
     // Notify artist

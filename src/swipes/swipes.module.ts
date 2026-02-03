@@ -9,6 +9,10 @@ import { Venue, VenueSchema } from '../venues/schemas/venue.schema';
 import { User, UserSchema } from '../schemas/user.schema';
 import { Subscription, SubscriptionSchema } from '../schemas/subscription.schema';
 import { Gig, GigSchema } from '../schemas/gig.schema';
+import {
+  SwipeRateLimit,
+  SwipeRateLimitSchema,
+} from './schemas/rate-limit.schema';
 
 @Module({
   imports: [
@@ -20,6 +24,7 @@ import { Gig, GigSchema } from '../schemas/gig.schema';
       { name: User.name, schema: UserSchema },
       { name: Subscription.name, schema: SubscriptionSchema },
       { name: Gig.name, schema: GigSchema },
+      { name: SwipeRateLimit.name, schema: SwipeRateLimitSchema },
     ]),
   ],
   controllers: [SwipesController],
