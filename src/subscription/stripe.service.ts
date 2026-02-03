@@ -42,9 +42,9 @@ export class StripeService {
   private readonly logger = new Logger(StripeService.name);
   private stripe: Stripe;
 
-  /// Stripe API version - update yearly for new features and security
+  /// Stripe API version - must match installed stripe package types
   /// Check https://stripe.com/docs/api/versioning for latest version
-  private static readonly API_VERSION = '2026-01-17.clover' as const;
+  private static readonly API_VERSION = '2025-12-18.acacia' as Stripe.LatestApiVersion;
 
   constructor(private configService: ConfigService) {
     const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');

@@ -28,9 +28,9 @@ import {
   HttpCode,
   Logger,
   Headers,
-  RawBodyRequest,
   Req,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
 import { Request } from 'express';
 import { IsString, IsNumber, IsOptional, IsBoolean, IsObject } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -561,10 +561,9 @@ export class SubscriptionController {
         try {
           // For raw body verification, we need the raw buffer
           // This requires express.raw() middleware or parsing from buffer
-          event = await this.stripeService.constructWebhookEvent(
+          event = this.stripeService.constructEvent(
             req.rawBody || Buffer.from(JSON.stringify(body)),
             signature,
-            webhookSecret,
           );
           this.logger.log(`Webhook signature verified: ${event.type}`);
         } catch (err) {

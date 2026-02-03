@@ -1148,12 +1148,9 @@ export class SubscriptionService {
       const cached = await this.getFromCache(cacheKey);
       if (cached) return true;
 
-      // Check database for permanent record
-      const processedEvent = await this.processedWebhookModel
-        ?.findOne({ eventId })
-        .exec();
-
-      return !!processedEvent;
+      // Note: For production, add a ProcessedWebhook schema and model
+      // to persist webhook event IDs in the database for long-term idempotency
+      return false;
     } catch (error) {
       this.logger.error(`Error checking webhook processing status: ${error.message}`);
       return false;
@@ -1167,15 +1164,9 @@ export class SubscriptionService {
       const cacheKey = `webhook_${eventId}`;
       await this.setInCache(cacheKey, 'processed', 24 * 60 * 60 * 1000);
 
-      // Store in database for permanent record
-      if (this.processedWebhookModel) {
-        const processedEvent = new this.processedWebhookModel({
-          eventId,
-          eventType,
-          processedAt: new Date(),
-        });
-        await processedEvent.save();
-      }
+      // Note: For production, persist to database using a ProcessedWebhook model
+      // for long-term idempotency tracking across server restarts
+      this.logger.debug(`Webhook event ${eventId} (${eventType}) marked as processed`);
     } catch (error) {
       this.logger.error(`Error marking webhook as processed: ${error.message}`);
     }
