@@ -708,29 +708,29 @@ VenueSchema.virtual('fullLocation').get(function (): string {
 /// Virtual for checking if venue is open today
 VenueSchema.virtual('isOpenToday').get(function (): boolean {
   const today = new Date().getDay();
-  return this.operatingHours.some((h) => h.dayOfWeek === today && h.isOpen);
+  return this.operatingHours?.some((h) => h.dayOfWeek === today && h.isOpen) ?? false;
 });
 
 /// Virtual for primary contact
 VenueSchema.virtual('primaryContact').get(function (): ContactPerson | null {
-  return this.contacts.find((c) => c.isPrimary) || this.contacts[0] || null;
+  return this.contacts?.find((c) => c.isPrimary) || this.contacts?.[0] || null;
 });
 
 /// Virtual for primary photo
 VenueSchema.virtual('primaryPhoto').get(function (): string | null {
-  const primary = this.photos.find((p) => p.isPrimary);
-  return primary?.url || this.photos[0]?.url || null;
+  const primary = this.photos?.find((p) => p.isPrimary);
+  return primary?.url || this.photos?.[0]?.url || null;
 });
 
 /// Virtual for profile photo URL (alias for primaryPhoto for Flutter compatibility)
 VenueSchema.virtual('profilePhotoUrl').get(function (): string | null {
-  const primary = this.photos.find((p) => p.isPrimary);
-  return primary?.url || this.photos[0]?.url || null;
+  const primary = this.photos?.find((p) => p.isPrimary);
+  return primary?.url || this.photos?.[0]?.url || null;
 });
 
 /// Virtual for gallery URLs (non-primary photos for Flutter compatibility)
 VenueSchema.virtual('galleryUrls').get(function (): string[] {
-  return this.photos
+  return (this.photos || [])
     .filter((p) => !p.isPrimary)
     .sort((a, b) => a.order - b.order)
     .map((p) => p.url);
@@ -867,10 +867,12 @@ VenueSchema.pre('save', function (this: VenueDocument) {
   // Set profile completeness percentage
   this.profileCompleteness = Math.min(score, maxScore);
 
-  // Auto-set hasCompletedSetup when profile is >= 50% complete
-  // This allows venues to post gigs once they have basic info filled
-  if (this.profileCompleteness >= 50) {
+  // Auto-set hasCompletedSetup when profile is >= 30% complete
+  // This allows venues to post gigs once they have name, location, capacity, and budget
+  if (this.profileCompleteness >= 30) {
     this.hasCompletedSetup = true;
+  } else {
+    this.hasCompletedSetup = false;
   }
 
   // Update search tags

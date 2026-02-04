@@ -130,11 +130,19 @@ export class GigsController {
     @Query('limit') limit?: string,
     @Query('status') status?: string,
   ) {
-    return this.gigsService.getVenueGigs(user._id.toString(), {
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-      status: status || undefined,
-    });
+    console.log('📥 [GigsController] GET /mine - User ID:', user._id.toString(), 'Role:', user.role);
+    try {
+      const result = await this.gigsService.getVenueGigs(user._id.toString(), {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        status: status || undefined,
+      });
+      console.log('✅ [GigsController] Returning', result.items.length, 'gigs');
+      return result;
+    } catch (error) {
+      console.error('❌ [GigsController] Error in getMyGigs:', error.message, error.stack);
+      throw error;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════

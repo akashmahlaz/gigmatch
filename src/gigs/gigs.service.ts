@@ -333,33 +333,52 @@ export class GigsService {
     venueUserId: string,
     opts?: { page?: number; limit?: number; status?: string },
   ): Promise<PaginatedResult<GigDocument>> {
-    const page = Math.max(1, opts?.page ?? 1);
-    const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
-    const skip = (page - 1) * limit;
+    try {
+      const page = Math.max(1, opts?.page ?? 1);
+      const limit = Math.min(50, Math.max(1, opts?.limit ?? 20));
+      const skip = (page - 1) * limit;
 
-    const venue = await this.findVenueByUserId(venueUserId);
+      console.log('🎯 [GigsService] Getting venue gigs for user:', venueUserId);
 
-    if (!venue) {
-      throw new NotFoundException('Venue profile not found');
+      const venue = await this.findVenueByUserId(venueUserId);
+
+      if (!venue) {
+        console.log('❌ [GigsService] Venue profile not found for user:', venueUserId);
+        throw new NotFoundException('Venue profile not found');
+      }
+
+      console.log('✅ [GigsService] Found venue:', venue._id.toString());
+
+      const filter: Record<string, any> = { venue: venue._id };
+      if (opts?.status) {
+        filter.status = opts.status;
+      }
+
+      console.log('🔍 [GigsService] Query filter:', JSON.stringify(filter));
+
+      console.log('🔍 [GigsService] Executing query...');
+      const [items, total] = await Promise.all([
+        this.gigModel
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate({
+            path: 'venue',
+            select: 'venueName venueType location',
+          })
+          .lean()
+          .exec(),
+        this.gigModel.countDocuments(filter).exec(),
+      ]);
+
+      console.log('✅ [GigsService] Query completed - Found gigs:', items.length, 'Total:', total);
+
+      return { items, total, page, pages: Math.ceil(total / limit) };
+    } catch (err) {
+      console.error('❌ [GigsService] getVenueGigs error:', err);
+      throw err;
     }
-
-    const filter: Record<string, any> = { venue: venue._id };
-    if (opts?.status) {
-      filter.status = opts.status;
-    }
-
-    const [items, total] = await Promise.all([
-      this.gigModel
-        .find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('venue', 'venueName venueType coverPhoto location')
-        .exec(),
-      this.gigModel.countDocuments(filter).exec(),
-    ]);
-
-    return { items, total, page, pages: Math.ceil(total / limit) };
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1173,14 +1192,27 @@ export class GigsService {
     venueUserId: string,
     venueId?: string,
   ): Promise<VenueDocument | null> {
-    const venueUserIdObj = new Types.ObjectId(venueUserId);
-    const filter: Record<string, any> = {
-      $or: [{ userId: venueUserIdObj }, { userId: venueUserId }],
-    };
-    if (venueId) {
-      filter._id = venueId;
+    try {
+      console.log('🔍 [GigsService] findVenueByUserId - Input:', { venueUserId, venueId });
+      const venueUserIdObj = new Types.ObjectId(venueUserId);
+      const filter: Record<string, any> = {
+        $or: [{ userId: venueUserIdObj }, { userId: venueUserId }],
+      };
+      if (venueId) {
+        filter._id = venueId;
+      }
+      console.log('🔍 [GigsService] Query filter:', JSON.stringify(filter));
+      const venue = await this.venueModel.findOne(filter).exec();
+      if (venue) {
+        console.log('✅ [GigsService] Found venue:', venue._id.toString(), 'Name:', venue.venueName);
+      } else {
+        console.log('❌ [GigsService] No venue found for filter');
+      }
+      return venue;
+    } catch (error) {
+      console.error('❌ [GigsService] findVenueByUserId error:', error.message);
+      throw error;
     }
-    return this.venueModel.findOne(filter).exec();
   }
 
   private isValidLatitude(lat: number): boolean {

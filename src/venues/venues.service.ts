@@ -114,21 +114,18 @@ export class VenuesService {
     // Normalize field names from Flutter DTO to MongoDB schema
     const normalizedUpdate = this.normalizeVenueUpdate(updateVenueDto, venue);
 
-    // Calculate profile completion percentage
-    const completionPercent = this.calculateProfileCompletion({
-      ...venue.toObject(),
-      ...normalizedUpdate,
-    } as Partial<Venue>);
+    // Apply updates to document
+    Object.assign(venue, normalizedUpdate);
 
-    const updated = await this.venueModel
-      .findByIdAndUpdate(
-        venue._id,
-        { ...normalizedUpdate, profileCompletionPercent: completionPercent },
-        { new: true },
-      )
-      .exec();
+    // Save - this triggers pre-save hook which calculates profileCompleteness and hasCompletedSetup
+    const updated = await venue.save();
 
-    return updated!;
+    console.log('🏢 [VenueService] Updated venue:');
+    console.log('  - profileCompleteness:', updated.profileCompleteness);
+    console.log('  - hasCompletedSetup:', updated.hasCompletedSetup);
+    console.log('  - isOpenForBookings:', updated.isOpenForBookings);
+
+    return updated;
   }
 
   /**
@@ -136,6 +133,18 @@ export class VenuesService {
    */
   private normalizeVenueUpdate(dto: UpdateVenueDto, existingVenue: VenueDocument): Record<string, any> {
     const normalized: Record<string, any> = { ...dto };
+
+    // Map DTO field names to schema field names
+    // DTO uses: minBudget/maxBudget
+    // Schema uses: budgetMin/budgetMax
+    if (dto.minBudget !== undefined) {
+      normalized['budgetMin'] = dto.minBudget;
+      delete normalized['minBudget'];
+    }
+    if (dto.maxBudget !== undefined) {
+      normalized['budgetMax'] = dto.maxBudget;
+      delete normalized['maxBudget'];
+    }
 
     // coverPhoto -> stored as first photo in photos array marked as primary
     // photoGallery -> stored as photos array
