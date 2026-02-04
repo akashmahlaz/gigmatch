@@ -17,10 +17,11 @@ import {
   BadRequestException,
   Inject,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types, ClientSession } from 'mongoose';
+import { InjectModel, InjectConnection } from '@nestjs/mongoose';
+import { Model, Types, ClientSession, Connection } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
-import { FirebaseAdmin, INJECTION_TOKEN } from './firebase.provider';
+import type { FirebaseAdmin } from './firebase.provider';
+import { INJECTION_TOKEN } from './firebase.provider';
 import {
   Notification,
   NotificationDocument,
@@ -100,9 +101,16 @@ export class NotificationsService {
     @InjectModel(DeviceToken.name)
     private deviceTokenModel: Model<DeviceTokenDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectConnection() private connection: Connection,
     private configService: ConfigService,
+    @Inject(INJECTION_TOKEN) private firebaseAdmin: FirebaseAdmin,
   ) {
     this.initializeTemplates();
+    if (this.firebaseAdmin.messaging) {
+      this.logger.log('✅ Firebase Messaging initialized and ready');
+    } else {
+      this.logger.warn('⚠️ Firebase Messaging not available - push notifications disabled');
+    }
   }
 
   /// Initialize notification templates
@@ -277,18 +285,15 @@ export class NotificationsService {
 
       const tokens = deviceTokens.map((t) => t.token);
 
-      // Check if Firebase is configured
-      const firebaseAdmin =
-        this.configService.get<FirebaseAdmin>(INJECTION_TOKEN);
-
-      if (!firebaseAdmin || !firebaseAdmin.messaging) {
+      // Check if Firebase is configured (use injected instance)
+      if (!this.firebaseAdmin || !this.firebaseAdmin.messaging) {
         this.logger.warn(
           'Firebase admin not configured, push notifications disabled',
         );
         return 0;
       }
 
-      // Build FCM message
+      // Build FCM message (HTTP v1 API format)
       const buildMessage = (token: string): any => ({
         token,
         notification: {
@@ -328,25 +333,54 @@ export class NotificationsService {
         },
       });
 
-      // Send to multiple tokens
+      // Send to multiple tokens using Firebase Admin SDK
       if (tokens.length === 1) {
-        await firebaseAdmin.messaging().send(buildMessage(tokens[0]));
+        await this.firebaseAdmin.messaging.send(buildMessage(tokens[0]));
+        return 1;
       } else {
-        const message = buildMessage(tokens[0]);
-        message.tokens = tokens;
-        const response = await firebaseAdmin
-          .messaging()
-          .sendEachForMulticast(message);
+        // Build multicast message
+        const multicastMessage = {
+          tokens,
+          notification: {
+            title: payload.title,
+            body: payload.body,
+            imageUrl: payload.imageUrl,
+          },
+          data: {
+            type: payload.type,
+            deepLink: payload.deepLink || '',
+            ...payload.data,
+          },
+          android: {
+            priority: (payload.priority === 'high' ? 'high' : 'normal') as 'high' | 'normal',
+            notification: {
+              channelId: this.getChannelId(payload.type),
+              sound: payload.sound || 'default',
+            },
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: payload.sound || 'default',
+                badge: payload.badge,
+              },
+            },
+          },
+        };
+
+        const response = await this.firebaseAdmin.messaging.sendEachForMulticast(multicastMessage);
 
         // Handle invalid tokens
         if (response.failureCount > 0) {
           await this.handleFailedTokens(tokens, response.responses);
         }
 
+        this.logger.log(
+          `📤 Push sent: ${response.successCount} success, ${response.failureCount} failed`,
+        );
+
         return response.successCount;
       }
-
-      return tokens.length;
     } catch (error: any) {
       this.logger.error(`Failed to send push notification: ${error.message}`);
       return 0;
@@ -826,17 +860,123 @@ export class NotificationsService {
   }
 
   /// Send new gig opportunity notifications to matching artists
+  /// Finds artists that match by genre and are within travel radius of the gig location
   async notifyArtistsOfNewGig(
     gigId: string,
-    genre: string,
-    location: { lat: number; lng: number; radius: number },
+    gigTitle: string,
+    genres: string[],
+    location: { lat: number; lng: number },
+    budget: number,
+    venueName: string,
   ): Promise<number> {
-    // This would query artists matching the gig criteria
-    // For now, return placeholder count
-    this.logger.log(
-      `Would notify artists about gig ${gigId} for genre ${genre}`,
-    );
-    return 0;
+    try {
+      // Import Artist model dynamically to avoid circular deps
+      const Artist = this.connection.model('Artist');
+
+      // Find artists that:
+      // 1. Have at least one matching genre
+      // 2. Have gig notifications enabled
+      // 3. Are within their travel radius of the gig location
+
+      // First, find users with gig notifications enabled
+      const usersWithNotificationsEnabled = await this.userModel
+        .find({
+          role: 'artist',
+          isActive: true,
+          $or: [
+            { 'notificationPreferences.gigNotifications': true },
+            { 'notificationPreferences.gigNotifications': { $exists: false } }, // Default enabled
+          ],
+        })
+        .select('_id')
+        .lean()
+        .exec();
+
+      const userIds = usersWithNotificationsEnabled.map((u: any) => u._id);
+
+      if (userIds.length === 0) {
+        this.logger.debug('No users with gig notifications enabled');
+        return 0;
+      }
+
+      // Find matching artists by genre and location
+      const matchingArtists = await Artist.find({
+        userId: { $in: userIds },
+        genres: { $in: genres.length > 0 ? genres : ['.*'] }, // Match any if no genres specified
+        isProfileVisible: true,
+        // Geo query - find artists whose location is within their travel radius
+        'location.coordinates': {
+          $nearSphere: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [location.lng, location.lat],
+            },
+            $maxDistance: 160934, // 100 miles in meters as max, filtered by artist preference
+          },
+        },
+      })
+        .select('userId stageName displayName location.travelRadiusMiles')
+        .limit(100) // Cap notifications per gig
+        .lean()
+        .exec();
+
+      if (matchingArtists.length === 0) {
+        this.logger.debug(`No matching artists found for gig ${gigId}`);
+        return 0;
+      }
+
+      // Send notifications to each matching artist
+      let sentCount = 0;
+      const notifications = matchingArtists.map(async (artist: any) => {
+        try {
+          await this.sendNotification({
+            userId: artist.userId.toString(),
+            type: 'gig_opportunity',
+            title: '🎵 New Gig Near You!',
+            body: `${venueName} is looking for ${genres.join('/')} artists. Budget: $${budget}`,
+            deepLink: `/gigs/${gigId}`,
+            data: { gigId, gigTitle, venueName },
+          });
+          sentCount++;
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to notify artist ${artist.userId}: ${err.message}`,
+          );
+        }
+      });
+
+      await Promise.all(notifications);
+
+      this.logger.log(
+        `📤 Notified ${sentCount} artists about new gig "${gigTitle}"`,
+      );
+      return sentCount;
+    } catch (error: any) {
+      this.logger.error(`Failed to notify artists of new gig: ${error.message}`);
+      return 0;
+    }
+  }
+
+  /// Notify venue when an artist applies to their gig
+  async notifyVenueOfApplication(
+    venueUserId: string,
+    gigId: string,
+    gigTitle: string,
+    artistName: string,
+    proposedRate?: number,
+  ): Promise<void> {
+    const body = proposedRate
+      ? `${artistName} applied to "${gigTitle}" with a proposed rate of $${proposedRate}`
+      : `${artistName} applied to your gig "${gigTitle}"`;
+
+    await this.sendNotification({
+      userId: venueUserId,
+      type: 'gig_opportunity', // Reuse existing type
+      title: '🎸 New Application!',
+      body,
+      deepLink: `/gigs/${gigId}/applications`,
+      data: { gigId, artistName },
+    });
   }
 
   /// Send match notification

@@ -18,8 +18,8 @@ export enum SubscriptionStatus {
 // Subscription plan enum for type safety
 export enum SubscriptionPlan {
   FREE = 'free',
-  BASIC = 'basic',
   PRO = 'pro',
+  PREMIUM = 'premium',
 }
 
 /**
@@ -48,10 +48,10 @@ export class Subscription {
   // Plan
   @Prop({
     required: true,
-    enum: ['free', 'basic', 'pro'],
+    enum: ['free', 'pro', 'premium'],
     default: 'free',
   })
-  plan: 'free' | 'basic' | 'pro';
+  plan: 'free' | 'pro' | 'premium';
 
   // Status
   @Prop({
@@ -102,8 +102,8 @@ export class Subscription {
   trialEnd?: Date;
 
   // Tier (alias for plan, used by subscription service)
-  @Prop({ default: 'free' })
-  tier?: string;
+  @Prop({ default: 'free', enum: ['free', 'pro', 'premium'] })
+  tier: string;
 
   // Billing flags
   @Prop({ default: false })
@@ -127,6 +127,13 @@ export class Subscription {
     customProfileUrl: boolean;
     verifiedBadge: boolean;
     unlimitedMessages: boolean;
+    canSeeViews: boolean;
+    canUseAdvancedFilters: boolean;
+    canMessageFirst: boolean;
+    canSeeReadReceipts: boolean;
+    maxGigApplications: number;
+    canAccessAnalytics: boolean;
+    maxMediaUploads: number;
   };
 
   // Usage tracking

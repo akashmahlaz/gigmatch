@@ -152,6 +152,22 @@ export class GigsService {
     });
 
     await gig.save();
+
+    // Notify matching artists if gig is published (status = 'open')
+    if (gig.status === 'open' && gig.isPublic) {
+      const [lng, lat] = gig.location.geo.coordinates;
+      this.notificationsService.notifyArtistsOfNewGig(
+        gig._id.toString(),
+        gig.title,
+        gig.requiredGenres,
+        { lat, lng },
+        gig.budget,
+        venue.venueName,
+      ).catch((err) => {
+        this.logger.warn(`Failed to notify artists of new gig: ${err.message}`);
+      });
+    }
+
     return gig;
   }
 
@@ -230,6 +246,28 @@ export class GigsService {
 
     if (!updated) {
       throw new NotFoundException('Gig not found');
+    }
+
+    // If gig was just published (status changed to 'open'), notify matching artists
+    if (
+      dto.status === 'open' &&
+      gig.status !== 'open' &&
+      updated.isPublic
+    ) {
+      const venue = await this.venueModel.findById(updated.venue).exec();
+      if (venue) {
+        const [lng, lat] = updated.location.geo.coordinates;
+        this.notificationsService.notifyArtistsOfNewGig(
+          updated._id.toString(),
+          updated.title,
+          updated.requiredGenres,
+          { lat, lng },
+          updated.budget,
+          venue.venueName,
+        ).catch((err) => {
+          this.logger.warn(`Failed to notify artists of published gig: ${err.message}`);
+        });
+      }
     }
 
     return updated;
@@ -354,6 +392,10 @@ export class GigsService {
 
   /**
    * Artist applies to a gig
+   * Enforces tier-based application limits:
+   * - Free: 5 applications/month
+   * - Pro: 20 applications/month
+   * - Premium: Unlimited
    */
   async applyToGig(
     artistUserId: string,
@@ -366,6 +408,31 @@ export class GigsService {
 
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
+    }
+
+    // Get user's subscription tier and check limits
+    const user = await this.userModel.findById(
+      new Types.ObjectId(artistUserId),
+    );
+    const tier = user?.subscriptionTier || 'free';
+
+    // Count applications this month
+    const applicationsThisMonth =
+      await this.countApplicationsThisMonth(artistUserId);
+
+    // Apply limits based on tier
+    let maxApps = 5; // Free tier
+    if (tier === 'pro') {
+      maxApps = 20;
+    }
+    if (tier === 'premium') {
+      maxApps = -1;
+    } // Unlimited
+
+    if (maxApps !== -1 && applicationsThisMonth >= maxApps) {
+      throw new BadRequestException(
+        `You have reached your monthly limit of ${maxApps} gig applications. Upgrade your subscription for more applications.`,
+      );
     }
 
     const gig = await this.gigModel.findById(gigId).exec();
@@ -401,10 +468,44 @@ export class GigsService {
 
     await gig.save();
 
+    // Notify venue about the new application
+    this.notificationsService.notifyVenueOfApplication(
+      gig.postedBy.toString(),
+      gigId,
+      gig.title,
+      artist.stageName || artist.displayName || 'An artist',
+      dto.proposedRate,
+    ).catch((err) => {
+      this.logger.warn(`Failed to notify venue of application: ${err.message}`);
+    });
+
     return this.gigModel
       .findById(gigId)
       .populate('venue', 'venueName venueType coverPhoto location')
       .exec() as Promise<GigDocument>;
+  }
+
+  /**
+   * Count how many gig applications artist has made this month
+   */
+  async countApplicationsThisMonth(artistUserId: string): Promise<number> {
+    const artist = await this.artistModel.findOne({
+      userId: new Types.ObjectId(artistUserId),
+    });
+    if (!artist) {
+      return 0;
+    }
+
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const count = await this.gigModel.countDocuments({
+      'applications.artist': artist._id,
+      'applications.appliedAt': { $gte: startOfMonth },
+    });
+
+    return count;
   }
 
   /**
@@ -542,8 +643,8 @@ export class GigsService {
       throw new BadRequestException('No application found for this gig.');
     }
 
-    // Use 'declined' status when artist declines (distinct from 'withdrawn')
-    application.status = 'declined';
+    // Use 'rejected' status when artist declines a booking offer
+    application.status = 'rejected';
     await gig.save();
 
     // Notify venue that artist declined the offer

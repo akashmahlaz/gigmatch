@@ -86,6 +86,75 @@ export class User {
   @Prop({ default: true })
   emailNotificationsEnabled: boolean;
 
+  /// Notification preferences
+  @Prop({
+    type: {
+      notificationsEnabled: { type: Boolean, default: true },
+      matchNotifications: { type: Boolean, default: true },
+      messageNotifications: { type: Boolean, default: true },
+      gigNotifications: { type: Boolean, default: true },
+      bookingNotifications: { type: Boolean, default: true },
+      reviewNotifications: { type: Boolean, default: true },
+      emailNotifications: { type: Boolean, default: false },
+      pushNotifications: { type: Boolean, default: true },
+      quietHoursEnabled: { type: Boolean, default: false },
+      quietHoursStart: { type: String, default: '22:00' },
+      quietHoursEnd: { type: String, default: '08:00' },
+    },
+    default: {
+      notificationsEnabled: true,
+      matchNotifications: true,
+      messageNotifications: true,
+      gigNotifications: true,
+      bookingNotifications: true,
+      reviewNotifications: true,
+      emailNotifications: false,
+      pushNotifications: true,
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '08:00',
+    },
+  })
+  notificationPreferences: {
+    notificationsEnabled: boolean;
+    matchNotifications: boolean;
+    messageNotifications: boolean;
+    gigNotifications: boolean;
+    bookingNotifications: boolean;
+    reviewNotifications: boolean;
+    emailNotifications: boolean;
+    pushNotifications: boolean;
+    quietHoursEnabled: boolean;
+    quietHoursStart: string;
+    quietHoursEnd: string;
+  };
+
+  /// Privacy settings
+  @Prop({
+    type: {
+      showOnlineStatus: { type: Boolean, default: true },
+      showDistance: { type: Boolean, default: true },
+      maxDistance: { type: Number, default: 50 },
+    },
+    default: {
+      showOnlineStatus: true,
+      showDistance: true,
+      maxDistance: 50,
+    },
+  })
+  privacySettings: {
+    showOnlineStatus: boolean;
+    showDistance: boolean;
+    maxDistance: number;
+  };
+
+  // Subscription fields (denormalized for quick access)
+  @Prop({ default: 'free', enum: ['free', 'pro', 'premium'] })
+  subscriptionTier: string;
+
+  @Prop({ default: false })
+  hasActiveSubscription: boolean;
+
   // Subscription (for artists)
   @Prop({ type: Types.ObjectId, ref: 'Subscription' })
   subscription?: Types.ObjectId;

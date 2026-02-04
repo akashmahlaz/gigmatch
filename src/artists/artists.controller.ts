@@ -27,7 +27,9 @@ import {
 } from './dto/calendar.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { SubscriptionGuard } from '../auth/guards/subscription.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireSubscription } from '../auth/decorators/subscription.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { UserPayload } from '../schemas/user.schema';
@@ -80,13 +82,15 @@ export class ArtistsController {
     return this.artistsService.completeSetup(user._id.toString(), updateArtistDto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SubscriptionGuard)
   @Roles('artist')
+  @RequireSubscription('pro')
   @Post('me/boost')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Boost artist profile for visibility' })
+  @ApiOperation({ summary: 'Boost artist profile for visibility (requires Pro+)' })
   @ApiQuery({ name: 'hours', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'Profile boosted' })
+  @ApiResponse({ status: 403, description: 'Requires Pro subscription' })
   async boostProfile(
     @CurrentUser() user: UserPayload,
     @Query('hours') hours?: number,

@@ -1,6 +1,6 @@
 /// 💳 Stripe Webhook Handler
 ///
-/// Handles payment events from Stripe
+/// Handles payment events from Stripe (bookings + subscriptions)
 import {
   Controller,
   Post,
@@ -15,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { BookingsService } from '../bookings/bookings.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 @Controller('webhooks')
 export class StripeWebhookController {
@@ -25,6 +26,7 @@ export class StripeWebhookController {
   constructor(
     private readonly bookingsService: BookingsService,
     private readonly notificationsService: NotificationsService,
+    private readonly subscriptionService: SubscriptionService,
     private readonly configService: ConfigService,
   ) {
     const stripeKey = this.configService.get<string>('stripe.secretKey');
@@ -71,6 +73,9 @@ export class StripeWebhookController {
     // Handle the event
     try {
       switch (event.type) {
+        // ═══════════════════════════════════════════════════════════════════
+        // BOOKING PAYMENT EVENTS
+        // ═══════════════════════════════════════════════════════════════════
         case 'payment_intent.succeeded':
           await this.handlePaymentSucceeded(
             event.data.object as Stripe.PaymentIntent,
@@ -85,6 +90,37 @@ export class StripeWebhookController {
 
         case 'charge.refunded':
           await this.handleRefund(event.data.object as Stripe.Charge);
+          break;
+
+        // ═══════════════════════════════════════════════════════════════════
+        // SUBSCRIPTION EVENTS
+        // ═══════════════════════════════════════════════════════════════════
+        case 'customer.subscription.created':
+          await this.handleSubscriptionCreated(
+            event.data.object as Stripe.Subscription,
+          );
+          break;
+
+        case 'customer.subscription.updated':
+          await this.handleSubscriptionUpdated(
+            event.data.object as Stripe.Subscription,
+          );
+          break;
+
+        case 'customer.subscription.deleted':
+          await this.handleSubscriptionDeleted(
+            event.data.object as Stripe.Subscription,
+          );
+          break;
+
+        case 'invoice.paid':
+          await this.handleInvoicePaid(event.data.object as Stripe.Invoice);
+          break;
+
+        case 'invoice.payment_failed':
+          await this.handleInvoicePaymentFailed(
+            event.data.object as Stripe.Invoice,
+          );
           break;
 
         default:
@@ -156,5 +192,90 @@ export class StripeWebhookController {
   private async handleRefund(charge: Stripe.Charge) {
     this.logger.log(`Refund processed for charge: ${charge.id}`);
     // Handle partial/full refund - can be extended based on requirements
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // SUBSCRIPTION WEBHOOK HANDLERS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private async handleSubscriptionCreated(subscription: Stripe.Subscription) {
+    const userId = subscription.metadata?.userId;
+    if (!userId) {
+      this.logger.warn('Subscription created without userId metadata');
+      return;
+    }
+
+    this.logger.log(
+      `Subscription created for user ${userId}: ${subscription.id}`,
+    );
+    // This is usually handled by invoice.paid
+  }
+
+  private async handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+    const userId = subscription.metadata?.userId;
+    if (!userId) {
+      this.logger.warn('Subscription updated without userId metadata');
+      return;
+    }
+
+    this.logger.log(
+      `Subscription updated for user ${userId}: ${subscription.id}`,
+    );
+
+    try {
+      await this.subscriptionService.syncSubscriptionFromWebhook(
+        subscription,
+        userId,
+      );
+    } catch (err) {
+      this.logger.error(`Failed to sync subscription: ${err}`);
+    }
+  }
+
+  private async handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+    const userId = subscription.metadata?.userId;
+    if (!userId) {
+      this.logger.warn('Subscription deleted without userId metadata');
+      return;
+    }
+
+    this.logger.log(
+      `Subscription deleted for user ${userId}: ${subscription.id}`,
+    );
+
+    try {
+      await this.subscriptionService.cancelSubscriptionByWebhook(
+        subscription.id,
+        userId,
+      );
+    } catch (err) {
+      this.logger.error(`Failed to cancel subscription: ${err}`);
+    }
+  }
+
+  private async handleInvoicePaid(invoice: Stripe.Invoice) {
+    const customerId = invoice.customer as string;
+    this.logger.log(`Invoice paid for customer: ${customerId}`);
+
+    try {
+      await this.subscriptionService.handleInvoicePaid(customerId, invoice);
+    } catch (err) {
+      this.logger.error(`Failed to handle invoice paid: ${err}`);
+    }
+  }
+
+  private async handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
+    const customerId = invoice.customer as string;
+    this.logger.warn(`Invoice payment failed for customer: ${customerId}`);
+
+    try {
+      // Find user by customerId and notify them
+      await this.subscriptionService.handleInvoicePaymentFailed(
+        customerId,
+        invoice,
+      );
+    } catch (err) {
+      this.logger.error(`Failed to handle invoice payment failure: ${err}`);
+    }
   }
 }

@@ -854,7 +854,10 @@ export class SubscriptionService {
         await this.handleSubscriptionDeleted(event.data.object);
         break;
       case 'invoice.paid':
-        await this.handleInvoicePaid(event.data.object);
+        await this.handleInvoicePaid(
+          event.data.object.customer as string,
+          event.data.object,
+        );
         break;
       case 'invoice.payment_failed':
         await this.handleInvoiceFailed(event.data.object);
@@ -923,37 +926,6 @@ export class SubscriptionService {
       subscriptionTier: 'free',
       hasActiveSubscription: false,
     });
-  }
-
-  /// Handle invoice paid webhook
-  private async handleInvoicePaid(invoice: any): Promise<void> {
-    const customerId = invoice.customer as string;
-    const user = await this.userModel
-      .findOne({ stripeCustomerId: customerId })
-      .exec();
-
-    if (!user) return;
-
-    // Create invoice record if not exists
-    const existingInvoice = await this.invoiceModel
-      .findOne({
-        stripeInvoiceId: invoice.id,
-      })
-      .exec();
-
-    if (!existingInvoice) {
-      const invoiceDoc = new this.invoiceModel({
-        user: user._id,
-        stripeInvoiceId: invoice.id,
-        stripePaymentIntentId: invoice.payment_intent,
-        amount: invoice.amount_paid,
-        currency: invoice.currency?.toUpperCase() || 'USD',
-        description: invoice.description,
-        status: 'paid',
-        paidAt: new Date(),
-      });
-      await invoiceDoc.save();
-    }
   }
 
   /// Handle invoice failed webhook
@@ -1545,6 +1517,183 @@ export class SubscriptionService {
       clientSecret: paymentIntent.client_secret!,
       paymentIntentId: paymentIntent.id,
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WEBHOOK SYNC METHODS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Sync subscription from Stripe webhook event
+  async syncSubscriptionFromWebhook(
+    subscription: any, // Stripe.Subscription
+    userId: string,
+  ): Promise<void> {
+    const userIdObj = new Types.ObjectId(userId);
+
+    // Determine tier from price ID
+    const priceId = subscription.items?.data?.[0]?.price?.id;
+    const tier = this.getTierFromPriceId(priceId);
+
+    const now = new Date();
+    const periodEnd = new Date(subscription.current_period_end * 1000);
+
+    await this.subscriptionModel.findOneAndUpdate(
+      { userId: userIdObj },
+      {
+        $set: {
+          tier,
+          plan: tier,
+          status:
+            subscription.status === 'active'
+              ? SubscriptionStatus.ACTIVE
+              : SubscriptionStatus.CANCELED,
+          stripeSubscriptionId: subscription.id,
+          currentPeriodEnd: periodEnd,
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          canceledAt: subscription.canceled_at
+            ? new Date(subscription.canceled_at * 1000)
+            : null,
+          hasActiveSubscription: subscription.status === 'active',
+          updatedAt: now,
+        },
+      },
+      { upsert: true },
+    );
+
+    // Update user denormalized fields
+    await this.userModel.findByIdAndUpdate(userIdObj, {
+      subscriptionTier: tier,
+      hasActiveSubscription: subscription.status === 'active',
+    });
+
+    this.logger.log(`Synced subscription for user ${userId} to tier: ${tier}`);
+  }
+
+  /// Cancel subscription from webhook
+  async cancelSubscriptionByWebhook(
+    subscriptionId: string,
+    userId: string,
+  ): Promise<void> {
+    const userIdObj = new Types.ObjectId(userId);
+
+    await this.subscriptionModel.findOneAndUpdate(
+      { stripeSubscriptionId: subscriptionId },
+      {
+        $set: {
+          status: SubscriptionStatus.CANCELED,
+          hasActiveSubscription: false,
+          canceledAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    await this.userModel.findByIdAndUpdate(userIdObj, {
+      subscriptionTier: 'free',
+      hasActiveSubscription: false,
+    });
+
+    this.logger.log(`Cancelled subscription for user ${userId}`);
+  }
+
+  /// Handle invoice paid webhook
+  async handleInvoicePaid(
+    customerId: string,
+    invoice: any, // Stripe.Invoice
+  ): Promise<void> {
+    const user = await this.userModel.findOne({ stripeCustomerId: customerId });
+
+    if (!user) {
+      this.logger.warn(`User not found for Stripe customer: ${customerId}`);
+      return;
+    }
+
+    // Determine tier from invoice line items
+    const priceId = invoice.lines?.data?.[0]?.price?.id;
+    const tier = this.getTierFromPriceId(priceId);
+
+    // Update subscription and user
+    const userIdObj = user._id as Types.ObjectId;
+
+    await this.subscriptionModel.findOneAndUpdate(
+      { userId: userIdObj },
+      {
+        $set: {
+          tier,
+          plan: tier,
+          status: SubscriptionStatus.ACTIVE,
+          hasActiveSubscription: true,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+
+    await this.userModel.findByIdAndUpdate(userIdObj, {
+      subscriptionTier: tier,
+      hasActiveSubscription: true,
+    });
+
+    this.logger.log(`Invoice paid for user ${user._id}, tier: ${tier}`);
+  }
+
+  /// Handle invoice payment failed webhook
+  async handleInvoicePaymentFailed(
+    customerId: string,
+    invoice: any, // Stripe.Invoice
+  ): Promise<void> {
+    const user = await this.userModel.findOne({ stripeCustomerId: customerId });
+
+    if (!user) {
+      this.logger.warn(
+        `User not found for failed payment customer: ${customerId}`,
+      );
+      return;
+    }
+
+    this.logger.warn(`Invoice payment failed for user ${user._id}`);
+
+    // Note: Notification should be sent via NotificationsService
+    // but we don't have access to it here - the webhook controller handles this
+  }
+
+  /// Helper to determine tier from Stripe price ID
+  private getTierFromPriceId(priceId: string): string {
+    if (!priceId) {
+      return 'free';
+    }
+
+    // Check against configured price IDs
+    const premiumMonthly = this.configService.get<string>(
+      'STRIPE_PREMIUM_MONTHLY_PRICE_ID',
+    );
+    const premiumYearly = this.configService.get<string>(
+      'STRIPE_PREMIUM_YEARLY_PRICE_ID',
+    );
+    const proMonthly = this.configService.get<string>(
+      'STRIPE_PRO_MONTHLY_PRICE_ID',
+    );
+    const proYearly = this.configService.get<string>(
+      'STRIPE_PRO_YEARLY_PRICE_ID',
+    );
+
+    if (priceId === premiumMonthly || priceId === premiumYearly) {
+      return 'premium';
+    }
+    if (priceId === proMonthly || priceId === proYearly) {
+      return 'pro';
+    }
+
+    // Fallback: check if price ID contains tier name
+    const lowerPriceId = priceId.toLowerCase();
+    if (lowerPriceId.includes('premium')) {
+      return 'premium';
+    }
+    if (lowerPriceId.includes('pro')) {
+      return 'pro';
+    }
+
+    return 'free';
   }
 }
 

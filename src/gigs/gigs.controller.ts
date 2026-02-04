@@ -21,7 +21,11 @@ import {
 } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { SubscriptionGuard } from '../auth/guards/subscription.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireSubscription } from '../auth/decorators/subscription.decorator';
 import { UserPayload } from '../schemas/user.schema';
 
 import { GigsService } from './gigs.service';
@@ -322,10 +326,13 @@ export class GigsController {
   // ARTIST ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════════
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('artist')
   @Post(':id/apply')
-  @ApiOperation({ summary: 'Apply to a gig (artist only)' })
+  @ApiOperation({ summary: 'Apply to a gig (artist only, limited by subscription tier)' })
   @ApiParam({ name: 'id', description: 'Gig ID' })
   @ApiResponse({ status: 201, description: 'Application submitted' })
+  @ApiResponse({ status: 400, description: 'Application limit reached' })
   @ApiResponse({ status: 409, description: 'Already applied' })
   async applyToGig(
     @CurrentUser() user: UserPayload,
