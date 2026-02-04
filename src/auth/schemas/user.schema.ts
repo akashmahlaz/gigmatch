@@ -169,6 +169,25 @@ export class User {
     quietHoursEnd: string;
   };
 
+  /// Privacy settings
+  @Prop({
+    type: {
+      showOnlineStatus: { type: Boolean, default: true },
+      showDistance: { type: Boolean, default: true },
+      maxDistance: { type: Number, default: 50 },
+    },
+    default: {
+      showOnlineStatus: true,
+      showDistance: true,
+      maxDistance: 50,
+    },
+  })
+  privacySettings: {
+    showOnlineStatus: boolean;
+    showDistance: boolean;
+    maxDistance: number;
+  };
+
   /// Social login providers
   @Prop({
     type: {

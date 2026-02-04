@@ -161,3 +161,68 @@ export class AppleAuthDto {
   @IsEnum(['artist', 'venue'])
   role?: 'artist' | 'venue';
 }
+
+/// ═══════════════════════════════════════════════════════════════════════
+/// UPDATE PROFILE DTO
+/// ═══════════════════════════════════════════════════════════════════════
+
+import { IsBoolean } from 'class-validator';
+
+export class UpdateProfileDto {
+  @ApiPropertyOptional({ example: 'John Doe' })
+  @IsOptional()
+  @IsString()
+  fullName?: string;
+
+  @ApiPropertyOptional({ example: '+1234567890' })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/photo.jpg' })
+  @IsOptional()
+  @IsString()
+  profilePhotoUrl?: string;
+
+  // Notification Preferences (flat structure for mobile compatibility)
+  @ApiPropertyOptional({ description: 'Enable push notifications' })
+  @IsOptional()
+  @IsBoolean()
+  pushNotificationsEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Enable email notifications' })
+  @IsOptional()
+  @IsBoolean()
+  emailNotificationsEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Enable match notifications' })
+  @IsOptional()
+  @IsBoolean()
+  matchNotificationsEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Enable message notifications' })
+  @IsOptional()
+  @IsBoolean()
+  messageNotificationsEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Enable gig reminders' })
+  @IsOptional()
+  @IsBoolean()
+  gigRemindersEnabled?: boolean;
+
+  // Privacy Settings
+  @ApiPropertyOptional({ description: 'Show online status to others' })
+  @IsOptional()
+  @IsBoolean()
+  showOnlineStatus?: boolean;
+
+  @ApiPropertyOptional({ description: 'Show distance on profile' })
+  @IsOptional()
+  @IsBoolean()
+  showDistance?: boolean;
+
+  @ApiPropertyOptional({ description: 'Maximum discovery distance in miles' })
+  @IsOptional()
+  @IsNumber()
+  maxDistance?: number;
+}

@@ -606,6 +606,100 @@ export class AuthService {
   }
 
   /**
+   * Update user profile and settings
+   * Handles both basic profile info and notification/privacy preferences
+   */
+  async updateProfile(userId: string, updates: any): Promise<any> {
+    const user = await this.userModel.findById(userId).exec();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Handle basic profile updates
+    if (updates.fullName) {
+      user.fullName = updates.fullName;
+    }
+    if (updates.phone) {
+      user.phone = updates.phone;
+    }
+    if (updates.profilePhotoUrl) {
+      user.profilePhotoUrl = updates.profilePhotoUrl;
+    }
+
+    // Handle notification preferences (flat structure from mobile)
+    const notificationUpdates: any = {};
+    if (updates.pushNotificationsEnabled !== undefined) {
+      notificationUpdates.pushNotifications = updates.pushNotificationsEnabled;
+    }
+    if (updates.emailNotificationsEnabled !== undefined) {
+      notificationUpdates.emailNotifications = updates.emailNotificationsEnabled;
+    }
+    if (updates.matchNotificationsEnabled !== undefined) {
+      notificationUpdates.matchNotifications = updates.matchNotificationsEnabled;
+    }
+    if (updates.messageNotificationsEnabled !== undefined) {
+      notificationUpdates.messageNotifications = updates.messageNotificationsEnabled;
+    }
+    if (updates.gigRemindersEnabled !== undefined) {
+      notificationUpdates.gigNotifications = updates.gigRemindersEnabled;
+    }
+
+    // Merge with existing notification preferences
+    if (Object.keys(notificationUpdates).length > 0) {
+      user.notificationPreferences = {
+        ...user.notificationPreferences,
+        ...notificationUpdates,
+      };
+    }
+
+    // Handle privacy settings
+    const privacyUpdates: any = {};
+    if (updates.showOnlineStatus !== undefined) {
+      privacyUpdates.showOnlineStatus = updates.showOnlineStatus;
+    }
+    if (updates.showDistance !== undefined) {
+      privacyUpdates.showDistance = updates.showDistance;
+    }
+    if (updates.maxDistance !== undefined) {
+      privacyUpdates.maxDistance = updates.maxDistance;
+    }
+
+    // Merge with existing privacy settings
+    if (Object.keys(privacyUpdates).length > 0) {
+      user.privacySettings = {
+        ...user.privacySettings,
+        ...privacyUpdates,
+      };
+    }
+
+    await user.save();
+
+    // Return updated user in flat format for mobile compatibility
+    return {
+      _id: user._id.toString(),
+      id: user._id.toString(),
+      email: user.email,
+      name: user.fullName,
+      fullName: user.fullName,
+      role: user.role,
+      phone: user.phone,
+      profilePhotoUrl: user.profilePhotoUrl,
+      isEmailVerified: user.isEmailVerified,
+      pushNotificationsEnabled: user.notificationPreferences?.pushNotifications ?? true,
+      emailNotificationsEnabled: user.notificationPreferences?.emailNotifications ?? false,
+      matchNotificationsEnabled: user.notificationPreferences?.matchNotifications ?? true,
+      messageNotificationsEnabled: user.notificationPreferences?.messageNotifications ?? true,
+      gigRemindersEnabled: user.notificationPreferences?.gigNotifications ?? true,
+      showOnlineStatus: user.privacySettings?.showOnlineStatus ?? true,
+      showDistance: user.privacySettings?.showDistance ?? true,
+      maxDistance: user.privacySettings?.maxDistance ?? 50,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
+  /**
    * Generate JWT tokens
    */
   private async generateTokens(user: UserDocument): Promise<AuthTokens> {

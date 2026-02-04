@@ -4,6 +4,7 @@ import {
   Body,
   UseGuards,
   Get,
+  Patch,
   HttpCode,
   HttpStatus,
   Request,
@@ -24,6 +25,7 @@ import {
   ChangePasswordDto,
   GoogleAuthDto,
   AppleAuthDto,
+  UpdateProfileDto,
 } from './dto/auth.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -120,6 +122,18 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Profile retrieved' })
   async getProfile(@CurrentUser() user: UserPayload) {
     return this.authService.getProfile(user._id.toString());
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update current user profile and settings' })
+  @ApiResponse({ status: 200, description: 'Profile updated successfully' })
+  async updateProfile(
+    @CurrentUser() user: UserPayload,
+    @Body() updateProfileDto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(user._id.toString(), updateProfileDto);
   }
 
   @UseGuards(JwtAuthGuard)
