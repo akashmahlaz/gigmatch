@@ -292,6 +292,7 @@ export class VenuesService {
       }
 
       // Enforce required location for completion (city, country, coordinates [lng, lat])
+      // Note: We allow [0,0] coordinates as some venues might be at those locations
       const effectiveLocation: any = updateFields.location ?? venue.location;
 
       const city = effectiveLocation?.city;
@@ -302,13 +303,12 @@ export class VenuesService {
       const hasValidCountry =
         typeof country === 'string' && country.trim().length > 0;
 
+      // Valid coordinates: array of 2 numbers (allow [0,0] for venues at those locations)
       const hasValidCoords =
         Array.isArray(coords) &&
         coords.length === 2 &&
         typeof coords[0] === 'number' &&
-        typeof coords[1] === 'number' &&
-        Math.abs(coords[0]) > 0.000001 &&
-        Math.abs(coords[1]) > 0.000001;
+        typeof coords[1] === 'number';
 
       if (!hasValidCity || !hasValidCountry || !hasValidCoords) {
         throw new BadRequestException(

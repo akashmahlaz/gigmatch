@@ -823,30 +823,54 @@ VenueSchema.methods.getAvailableSlots = function (date: Date): number {
   return this.slotsAvailable - dayGigs.length;
 };
 
-/// Pre-save hook to calculate profile completeness
+/// Pre-save hook to calculate profile completeness and set hasCompletedSetup
 VenueSchema.pre('save', function (this: VenueDocument) {
-  if (
-    this.isModified('venueName') ||
-    this.isModified('description') ||
-    this.isModified('venueType') ||
-    this.isModified('location') ||
-    this.isModified('phone') ||
-    this.isModified('contactEmail') ||
-    this.isModified('contacts') ||
-    this.isModified('photos') ||
-    this.isModified('equipment') ||
-    this.isModified('preferredGenres') ||
-    this.isModified('budgetMin') ||
-    this.isModified('budgetMax') ||
-    this.isModified('socialLinks') ||
-    this.isModified('tagline') ||
-    this.isModified('virtualTourUrl')
-  ) {
-    (this as any).profileCompleteness = (
-      this as any
-    ).calculateProfileCompleteness();
-    // ⚠️ DO NOT auto-set hasCompletedSetup here - it must be set explicitly via completeSetup() method
-    // this.hasCompletedSetup = this.profileCompleteness >= 80;
+  // Calculate profile completeness
+  let score = 0;
+  const maxScore = 100;
+
+  // Basic info (25 points)
+  if (this.venueName) score += 5;
+  if (this.description && this.description.length >= 100) score += 10;
+  if (this.venueType && this.venueType !== VenueType.OTHER) score += 5;
+  if (this.tagline) score += 5;
+
+  // Location (15 points)
+  if (this.location?.city) score += 5;
+  if (this.location?.streetAddress) score += 5;
+  if (this.location?.coordinates &&
+      this.location!.coordinates.length >= 2 &&
+      this.location!.coordinates[0] !== 0 &&
+      this.location!.coordinates[1] !== 0) score += 5;
+
+  // Contact (15 points)
+  if (this.phone) score += 5;
+  if (this.contactEmail) score += 5;
+  if (this.contacts.length > 0) score += 5;
+
+  // Media (20 points)
+  if (this.photos.length > 0) score += 10;
+  if (this.photos.length >= 3) score += 5;
+  if (this.virtualTourUrl) score += 5;
+
+  // Equipment (10 points)
+  if (this.equipment.hasSoundSystem) score += 5;
+  if (this.equipment.hasStage) score += 5;
+
+  // Preferences (10 points)
+  if (this.preferredGenres.length > 0) score += 5;
+  if (this.budgetMin > 0 || this.budgetMax > 0) score += 5;
+
+  // Social (5 points)
+  if (this.socialLinks?.website) score += 5;
+
+  // Set profile completeness percentage
+  this.profileCompleteness = Math.min(score, maxScore);
+
+  // Auto-set hasCompletedSetup when profile is >= 50% complete
+  // This allows venues to post gigs once they have basic info filled
+  if (this.profileCompleteness >= 50) {
+    this.hasCompletedSetup = true;
   }
 
   // Update search tags
