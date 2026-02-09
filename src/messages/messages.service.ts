@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -15,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class MessagesService {
+  private readonly logger = new Logger(MessagesService.name);
   private readonly uploadUrl: string;
 
   constructor(
@@ -66,25 +68,49 @@ export class MessagesService {
       throw new BadRequestException('Message must have content or attachments');
     }
 
-    // Create message
-    const message = new this.messageModel({
-      match: matchId,
-      sender: userId,
-      senderType: userRole,
-      messageType,
-      content,
-      attachments: attachments || [],
-      replyTo: replyTo ?? replyToMessageId,
-      deliveryStatus: 'sent',
-      metadata,
-    });
+    // Use transaction for atomic operations
+    const session = await this.messageModel.db.startSession();
+    let message: MessageDocument | null = null;
 
-    await message.save();
+    try {
+      await session.withTransaction(async () => {
+        // Create message
+        message = new this.messageModel({
+          match: matchId,
+          sender: userId,
+          senderType: userRole,
+          messageType,
+          content,
+          attachments: attachments || [],
+          replyTo: replyTo ?? replyToMessageId,
+          deliveryStatus: 'sent',
+          metadata,
+        });
 
-    // Update match with last message info
-    await this.updateMatchLastMessage(match, content || 'Sent an attachment', userRole);
+        await message.save({ session });
 
-    return message;
+        // Update match with last message info (atomic increment)
+        const recipientField = userRole === 'artist' ? 'unreadCount.venue' : 'unreadCount.artist';
+        await this.matchModel.findByIdAndUpdate(
+          matchId,
+          {
+            hasMessages: true,
+            lastMessageAt: new Date(),
+            lastMessagePreview: (content || 'Sent an attachment').substring(0, 50),
+            $inc: { [recipientField]: 1 },
+          },
+          { session },
+        );
+      });
+
+      await session.endSession();
+      return message!;
+    } catch (error) {
+      await session.abortTransaction();
+      await session.endSession();
+      this.logger.error('Failed to send message', error);
+      throw new BadRequestException('Failed to send message. Please try again.');
+    }
   }
 
   /**
@@ -183,6 +209,67 @@ export class MessagesService {
     message.deletedAt = new Date();
     message.deletedBy = 'sender';
     await message.save();
+  }
+
+  /**
+   * Get a message by ID
+   */
+  async getMessageById(messageId: string): Promise<MessageDocument | null> {
+    return this.messageModel.findById(messageId).exec();
+  }
+
+  /**
+   * Search messages
+   */
+  async searchMessages(
+    userId: string,
+    query: string,
+    matchId?: string,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<{ messages: MessageDocument[]; hasMore: boolean; total: number }> {
+    // Get user's matches
+    const matches = await this.matchModel.find({
+      $or: [{ artistUser: userId }, { venueUser: userId }],
+      status: { $ne: 'blocked' },
+    });
+
+    const matchIds = matches.map((m) => m._id);
+
+    // Build search filter
+    const filter: any = {
+      match: { $in: matchIds },
+      isDeleted: false,
+      $or: [
+        { content: { $regex: query, $options: 'i' } },
+        { 'attachments.filename': { $regex: query, $options: 'i' } },
+      ],
+    };
+
+    if (matchId) {
+      filter.match = matchId;
+    }
+
+    const [messages, total] = await Promise.all([
+      this.messageModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit + 1)
+        .exec(),
+      this.messageModel.countDocuments(filter),
+    ]);
+
+    const hasMore = messages.length > limit;
+    if (hasMore) {
+      messages.pop();
+    }
+
+    return {
+      messages: messages.reverse(),
+      hasMore,
+      total,
+    };
   }
 
   /**
@@ -335,6 +422,13 @@ export class MessagesService {
       lastMessageAt: null,
       lastMessagePreview: null,
     };
+  }
+
+  /**
+   * Verify user has access to match (public wrapper)
+   */
+  async checkMatchAccess(matchId: string, userId: string): Promise<MatchDocument> {
+    return this.verifyMatchAccess(matchId, userId);
   }
 
   /**

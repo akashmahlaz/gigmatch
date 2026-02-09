@@ -34,6 +34,9 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private logger = new Logger('MessagesGateway');
   private connectedUsers = new Map<string, string[]>(); // userId -> socketIds
+  private userHeartbeats = new Map<string, Date>(); // userId -> last ping
+  private heartbeatInterval = 30000; // 30 seconds
+  private heartbeatCheckInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private jwtService: JwtService,
@@ -41,7 +44,12 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
     private messagesService: MessagesService,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Match.name) private matchModel: Model<MatchDocument>,
-  ) {}
+  ) {
+    // Start heartbeat check interval
+    this.heartbeatCheckInterval = setInterval(() => {
+      this.checkHeartbeats();
+    }, this.heartbeatInterval);
+  }
 
   /**
    * Handle new connection
@@ -211,12 +219,71 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
             : match.artistUser.toString();
 
         if (!this.isUserOnline(recipientId)) {
-          // TODO: Send push notification
-          this.logger.log(`User ${recipientId} is offline, should send push notification`);
+          // Send push notification to offline user
+          await this.sendPushNotification(recipientId, {
+            title: 'New Message',
+            body: data.content || 'You have a new message',
+            data: {
+              type: 'chat',
+              matchId: data.matchId,
+            },
+          });
         }
       }
     } catch (error) {
       client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * Send push notification to user
+   */
+  private async sendPushNotification(
+    userId: string,
+    notification: { title: string; body: string; data?: Record<string, string> },
+  ): Promise<void> {
+    try {
+      // TODO: Implement actual push notification via Firebase Cloud Messaging
+      // This is a placeholder that should be replaced with actual FCM integration
+      this.logger.log(`Push notification to user ${userId}: ${notification.title} - ${notification.body}`);
+
+      // Example FCM implementation:
+      // const userTokens = await this.firebaseService.getUserTokens(userId);
+      // for (const token of userTokens) {
+      //   await this.firebaseService.sendNotification(token, notification);
+      // }
+    } catch (error) {
+      this.logger.error('Failed to send push notification', error);
+    }
+  }
+
+  /**
+   * Handle ping for presence tracking
+   */
+  @SubscribeMessage('ping')
+  handlePing(@ConnectedSocket() client: AuthenticatedSocket) {
+    const userId = client.user._id.toString();
+    this.userHeartbeats.set(userId, new Date());
+    client.emit('pong', { timestamp: Date.now() });
+  }
+
+  /**
+   * Check and cleanup stale connections
+   */
+  private checkHeartbeats() {
+    const staleThreshold = Date.now() - (this.heartbeatInterval * 3);
+    for (const [userId, lastSeen] of this.userHeartbeats) {
+      if (lastSeen.getTime() < staleThreshold) {
+        this.userHeartbeats.delete(userId);
+        const sockets = this.connectedUsers.get(userId);
+        if (sockets) {
+          for (const socketId of sockets) {
+            this.server.to(socketId).emit('connection_lost');
+          }
+        }
+        this.connectedUsers.delete(userId);
+        this.logger.log(`User ${userId} connection timed out`);
+      }
     }
   }
 

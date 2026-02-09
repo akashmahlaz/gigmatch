@@ -190,7 +190,7 @@ export class Booking {
   contractSignedAt?: Date;
 
   // Reminder settings
-  @Prop({ default: true })
+  @Prop({ default: false })
   remindersSent: boolean;
 
   @Prop()

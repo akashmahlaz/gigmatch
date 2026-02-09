@@ -620,16 +620,34 @@ export class ArtistsService {
 
     const events: CalendarEventDto[] = [];
 
+    // Helper to format Date to HH:MM string
+    const formatTimeToString = (date: Date | undefined | string): string => {
+      if (!date) return '19:00';
+      if (typeof date === 'string') {
+        // Check if already in HH:MM format
+        if (/^\d{1,2}:\d{2}$/.test(date)) return date;
+        // Old data: full Date.toString() or ISO string — parse it
+        const parsed = new Date(date);
+        if (!isNaN(parsed.getTime())) {
+          return `${parsed.getHours().toString().padStart(2, '0')}:${parsed.getMinutes().toString().padStart(2, '0')}`;
+        }
+        return '19:00';
+      }
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return '19:00';
+      return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    };
+
     // Add availability slots
     if (artist.availability && artist.availability.length > 0) {
       for (const slot of artist.availability) {
         const slotDate = new Date(slot.date);
         if (slotDate >= startDate && slotDate <= endDate) {
           events.push({
-            id: `avail-${slotDate.toISOString()}`,
+            id: `avail-${(slot as any)._id?.toString() ?? slotDate.toISOString()}`,
             date: slotDate.toISOString().split('T')[0],
-            startTime: slot.startTime ? slot.startTime.toString() : '19:00',
-            endTime: slot.endTime ? slot.endTime.toString() : '23:00',
+            startTime: formatTimeToString(slot.startTime),
+            endTime: formatTimeToString(slot.endTime),
             eventType: slot.status === 'available' ? 'availability' : 'blocked',
             title: slot.status === 'available' ? 'Available' : 'Blocked',
             notes: slot.notes,
@@ -748,53 +766,94 @@ export class ArtistsService {
   }
 
   /**
+   * Parse HH:MM time string and combine with date to create proper DateTime
+   */
+  private parseTimeWithDate(dateStr: string, timeStr: string, isOvernight = false): Date {
+    const baseDate = new Date(dateStr);
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    
+    // If overnight and this is the end time, add a day
+    const targetDate = isOvernight ? new Date(baseDate.getTime() + 24 * 60 * 60 * 1000) : baseDate;
+    
+    return new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      hours || 19,
+      minutes || 0,
+      0,
+    );
+  }
+
+  /**
    * Add a single availability slot
    */
   async addAvailabilitySlot(
     userId: string,
     dto: AddAvailabilityDto,
-  ): Promise<{ slot: any; message: string }> {
+  ): Promise<{ slot: any; message: string; conflicts?: string[] }> {
     const artist = await this.artistModel.findOne({ userId }).exec();
     if (!artist) {
       throw new NotFoundException('Artist profile not found');
     }
 
+    // Parse time strings properly (HH:MM format)
+    const slotDate = new Date(dto.date);
+    
+    // Store times as HH:MM strings (avoids timezone confusion with Date objects)
+    const startTimeStr = dto.startTime || '19:00';
+    const endTimeStr = dto.endTime || '23:00';
+
+    // Check for conflicts with booked gigs on this date
+    const conflicts: string[] = [];
+    const dayStart = new Date(slotDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(slotDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const bookedGigs = await this.gigModel
+      .find({
+        bookedArtists: artist._id,
+        date: { $gte: dayStart, $lte: dayEnd },
+        status: { $in: ['open', 'in_progress', 'filled'] },
+      })
+      .lean()
+      .exec();
+
+    if (bookedGigs.length > 0) {
+      for (const gig of bookedGigs) {
+        conflicts.push(`Booked gig: "${gig.title}" at ${gig.startTime || 'TBD'}`);
+      }
+    }
+
     const newSlot = {
-      date: new Date(dto.date),
-      startTime: dto.startTime ? new Date(dto.startTime) : undefined,
-      endTime: dto.endTime ? new Date(dto.endTime) : undefined,
+      date: slotDate,
+      startTime: startTimeStr,
+      endTime: endTimeStr,
       status: dto.type !== AvailabilityType.BLOCKED ? 'available' : 'blocked',
       isBooked: false,
       ...(dto.notes && { notes: dto.notes }),
     } as any;
 
-    // Check if slot already exists for this date
-    const existingIndex = artist.availability?.findIndex(
-      (slot) =>
-        new Date(slot.date).toDateString() === newSlot.date.toDateString(),
-    );
-
-    if (existingIndex !== undefined && existingIndex >= 0) {
-      // Update existing slot
-      artist.availability[existingIndex] = newSlot;
-    } else {
-      // Add new slot
-      if (!artist.availability) {
-        artist.availability = [];
-      }
-      artist.availability.push(newSlot);
+    // Always push — allow multiple slots per date
+    if (!artist.availability) {
+      artist.availability = [];
     }
+    artist.availability.push(newSlot);
 
     await artist.save();
 
     return {
       slot: newSlot,
-      message: 'Availability slot added',
+      message: conflicts.length > 0 
+        ? `Availability added with ${conflicts.length} conflict(s)` 
+        : 'Availability slot added',
+      ...(conflicts.length > 0 && { conflicts }),
     };
   }
 
   /**
-   * Remove availability for a specific date
+   * Remove availability — by slotId (specific slot) or by date (all slots on that date)
    */
   async removeAvailability(
     userId: string,
@@ -805,16 +864,24 @@ export class ArtistsService {
       throw new NotFoundException('Artist profile not found');
     }
 
-    const targetDate = new Date(dto.date).toDateString();
-
     if (!artist.availability || artist.availability.length === 0) {
       return { message: 'No availability to remove' };
     }
 
     const originalLength = artist.availability.length;
-    artist.availability = artist.availability.filter(
-      (slot) => new Date(slot.date).toDateString() !== targetDate,
-    );
+
+    if (dto.slotId) {
+      // Remove specific slot by _id
+      artist.availability = artist.availability.filter(
+        (slot) => (slot as any)._id?.toString() !== dto.slotId,
+      );
+    } else {
+      // Remove all slots on the given date
+      const targetDate = new Date(dto.date).toDateString();
+      artist.availability = artist.availability.filter(
+        (slot) => new Date(slot.date).toDateString() !== targetDate,
+      );
+    }
 
     if (artist.availability.length < originalLength) {
       await artist.save();

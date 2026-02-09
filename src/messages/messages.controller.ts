@@ -10,6 +10,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,10 +20,11 @@ import {
   ApiParam,
   ApiConsumes,
   ApiBody,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MessagesService } from './messages.service';
-import { SendMessageDto, GetMessagesDto, MarkMessagesReadDto } from './dto/message.dto';
+import { SendMessageDto, GetMessagesDto, MarkMessagesReadDto, MarkMultipleMessagesReadDto } from './dto/message.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../schemas/user.schema';
@@ -32,6 +34,8 @@ import { UserPayload } from '../schemas/user.schema';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class MessagesController {
+  private readonly logger = new Logger(MessagesController.name);
+
   constructor(private readonly messagesService: MessagesService) {}
 
   @Post('upload')
@@ -142,6 +146,61 @@ export class MessagesController {
       markReadDto,
     );
     return { message: 'Messages marked as read' };
+  }
+
+  @Post('read/bulk')
+  @ApiOperation({ summary: 'Mark multiple specific messages as read' })
+  @ApiResponse({ status: 200, description: 'Messages marked as read' })
+  async markMultipleAsRead(
+    @CurrentUser() user: UserPayload,
+    @Body() dto: MarkMultipleMessagesReadDto,
+  ) {
+    // Verify access if matchId is provided
+    if (dto.matchId) {
+      await this.messagesService.checkMatchAccess(dto.matchId, user._id.toString());
+    }
+
+    // Mark each message as read
+    for (const messageId of dto.messageIds) {
+      try {
+        const message = await this.messagesService.getMessageById(messageId);
+        if (message && message.sender.toString() !== user._id.toString()) {
+          await this.messagesService.markAsRead(
+            user._id.toString(),
+            user.role,
+            { matchId: message.match.toString(), messageIds: [messageId] },
+          );
+        }
+      } catch (err) {
+        // Skip individual errors
+        this.logger.warn(`Failed to mark message ${messageId} as read`);
+      }
+    }
+
+    return { message: 'Messages marked as read' };
+  }
+
+  @Get('search')
+  @ApiOperation({ summary: 'Search messages' })
+  @ApiQuery({ name: 'query', required: true })
+  @ApiQuery({ name: 'matchId', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiResponse({ status: 200, description: 'Search results returned' })
+  async searchMessages(
+    @CurrentUser() user: UserPayload,
+    @Query('query') query: string,
+    @Query('matchId') matchId?: string,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
+  ) {
+    return this.messagesService.searchMessages(
+      user._id.toString(),
+      query,
+      matchId,
+      page,
+      limit,
+    );
   }
 
   @Post('conversations/:matchId/block')

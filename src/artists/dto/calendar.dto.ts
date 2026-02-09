@@ -95,12 +95,17 @@ export class UpdateAvailabilityDto {
 export class AddAvailabilityDto extends AvailabilitySlotDto {}
 
 /**
- * Remove availability by date
+ * Remove availability by date or specific slotId
  */
 export class RemoveAvailabilityDto {
   @ApiProperty({ example: '2026-01-25', description: 'Date to remove availability for' })
   @IsDateString()
   date: string;
+
+  @ApiPropertyOptional({ description: 'Specific slot ID to remove (if not provided, removes all for the date)' })
+  @IsOptional()
+  @IsString()
+  slotId?: string;
 }
 
 /**

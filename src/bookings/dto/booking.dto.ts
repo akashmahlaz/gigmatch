@@ -11,6 +11,7 @@ import {
   IsMongoId,
   IsEnum,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateBookingDto {
   @IsMongoId()
@@ -146,6 +147,7 @@ export class BookingQueryDto {
     'pending',
     'confirmed',
     'deposit_paid',
+    'paid',
     'in_progress',
     'completed',
     'cancelled',

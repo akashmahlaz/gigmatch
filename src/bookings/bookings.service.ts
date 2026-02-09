@@ -66,6 +66,24 @@ export class BookingsService {
       throw new ForbiddenException('Not authorized to create this booking');
     }
 
+    // Validate date is in the future
+    const bookingDate = new Date(dto.date);
+    if (bookingDate <= new Date()) {
+      throw new BadRequestException('Booking date must be in the future');
+    }
+
+    // Check for overlapping bookings for this artist on the same date
+    const existingBooking = await this.bookingModel.findOne({
+      artist: new Types.ObjectId(dto.artistId),
+      date: bookingDate,
+      status: { $nin: ['cancelled', 'completed'] },
+    });
+    if (existingBooking) {
+      throw new BadRequestException(
+        'Artist already has a booking on this date',
+      );
+    }
+
     // Create booking
     const booking = new this.bookingModel({
       artist: new Types.ObjectId(dto.artistId),
@@ -143,13 +161,16 @@ export class BookingsService {
 
     if (query.upcoming) {
       filter.date = { $gte: new Date() };
-      filter.status = { $in: ['pending', 'confirmed', 'deposit_paid'] };
+      // Only override status if not explicitly filtered
+      if (!query.status) {
+        filter.status = { $in: ['pending', 'confirmed', 'deposit_paid', 'paid'] };
+      }
     }
 
     return this.bookingModel
       .find(filter)
       .populate('artist', 'stageName profilePhoto averageRating')
-      .populate('venue', 'name profilePhoto averageRating')
+      .populate('venue', 'venueName profilePhoto averageRating location')
       .sort({ date: query.upcoming ? 1 : -1 })
       .limit(query.limit || 20)
       .skip(query.skip || 0)
@@ -163,6 +184,13 @@ export class BookingsService {
   async confirm(bookingId: string, userId: string): Promise<Booking> {
     const booking = await this.findById(bookingId);
 
+    // Only pending bookings can be confirmed
+    if (booking.status !== 'pending') {
+      throw new BadRequestException(
+        `Cannot confirm booking with status '${booking.status}'`,
+      );
+    }
+
     // Check authorization
     const isArtist = booking.artistUser.toString() === userId;
     const isVenueOwner = booking.venueUser.toString() === userId;
@@ -171,11 +199,19 @@ export class BookingsService {
       throw new ForbiddenException('Not authorized');
     }
 
+    // Check if already confirmed by this party
+    if (isArtist && booking.artistConfirmed) {
+      throw new BadRequestException('You have already confirmed this booking');
+    }
+    if (isVenueOwner && booking.venueConfirmed) {
+      throw new BadRequestException('You have already confirmed this booking');
+    }
+
     // Update confirmation
-    if (isArtist && !booking.artistConfirmed) {
+    if (isArtist) {
       booking.artistConfirmed = true;
       booking.artistConfirmedAt = new Date();
-    } else if (isVenueOwner && !booking.venueConfirmed) {
+    } else {
       booking.venueConfirmed = true;
       booking.venueConfirmedAt = new Date();
     }
@@ -265,7 +301,7 @@ export class BookingsService {
       throw new ForbiddenException('Not authorized');
     }
 
-    if (!['deposit_paid', 'in_progress'].includes(booking.status)) {
+    if (!['deposit_paid', 'paid', 'in_progress'].includes(booking.status)) {
       throw new BadRequestException(
         'Booking cannot be marked complete in current status',
       );

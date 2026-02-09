@@ -107,6 +107,18 @@ export class MarkMessagesReadDto {
   messageIds?: string[];
 }
 
+export class MarkMultipleMessagesReadDto {
+  @ApiProperty({ type: [String], description: 'Array of message IDs to mark as read' })
+  @IsArray()
+  @IsMongoId({ each: true })
+  messageIds: string[];
+
+  @ApiPropertyOptional({ description: 'Optional match ID for verification' })
+  @IsOptional()
+  @IsMongoId()
+  matchId?: string;
+}
+
 // WebSocket Events
 export class WsJoinRoomDto {
   @ApiProperty()

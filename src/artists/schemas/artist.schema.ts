@@ -101,11 +101,11 @@ export class AvailabilitySlot {
   @Prop({ type: Date, required: true })
   date!: Date;
 
-  @Prop({ type: Date })
-  startTime?: Date;
+  @Prop({ type: String })
+  startTime?: string;
 
-  @Prop({ type: Date })
-  endTime?: Date;
+  @Prop({ type: String })
+  endTime?: string;
 
   @Prop({ default: false })
   isBooked: boolean = false;

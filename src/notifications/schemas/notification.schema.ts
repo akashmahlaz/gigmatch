@@ -4,14 +4,26 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
+/**
+ * Notification types - must match what services send
+ * Note: Using string values that match service calls
+ */
 export enum NotificationType {
   MATCH = 'match',
   MESSAGE = 'message',
+  CHAT = 'chat',
   GIG_REMINDER = 'gig_reminder',
-  BOOKING_CONFIRMED = 'booking_confirmed',
+  GIG_OPPORTUNITY = 'gig_opportunity',
+  GIG_CANCELLED = 'gig_cancelled',
+  GIG_CONFIRMATION = 'gig_confirmation', // Application accepted notification
+  BOOKING_CONFIRMATION = 'booking_confirmation', // Used by booking & gig services
+  BOOKING_CONFIRMED = 'booking_confirmed', // Legacy/alternative
   BOOKING_CANCELLED = 'booking_cancelled',
+  BOOKING_DECLINED = 'booking_declined', // When artist declines a booking offer
   REVIEW_RECEIVED = 'review_received',
   PAYMENT_RECEIVED = 'payment_received',
+  PROFILE_VIEW = 'profile_view',
+  BOOST = 'boost',
   SYSTEM = 'system',
 }
 
