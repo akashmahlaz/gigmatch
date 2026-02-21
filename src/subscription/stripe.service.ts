@@ -44,7 +44,7 @@ export class StripeService {
 
   /// Stripe API version - must match installed stripe package types
   /// Check https://stripe.com/docs/api/versioning for latest version
-  private static readonly API_VERSION = '2025-12-18.acacia' as Stripe.LatestApiVersion;
+  private static readonly API_VERSION = '2025-12-15.clover' as Stripe.LatestApiVersion;
 
   constructor(private configService: ConfigService) {
     const secretKey = this.configService.get<string>('STRIPE_SECRET_KEY');

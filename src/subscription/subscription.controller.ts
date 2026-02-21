@@ -35,6 +35,7 @@ import { Request } from 'express';
 import { IsString, IsNumber, IsOptional, IsBoolean, IsObject } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { UserPayload } from '../schemas/user.schema';
 import { SubscriptionService } from './subscription.service';
 import { StripeService, CreatePaymentIntentDto } from './stripe.service';
 
@@ -119,16 +120,17 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async createPaymentIntent(
-    @CurrentUser() user: { userId: string; email: string },
+    @CurrentUser() user: UserPayload,
     @Body() dto: CreatePaymentIntentBodyDto,
   ) {
-    this.logger.log(`Creating payment intent for user: ${user.userId}`);
+    const userId = user._id.toString();
+    this.logger.log(`Creating payment intent for user: ${userId}`);
 
     // Get or create Stripe customer
     let customerId: string | undefined;
     try {
       customerId = await this.subscriptionService.getOrCreateStripeCustomer(
-        user.userId,
+        userId,
       );
     } catch (e) {
       this.logger.warn(`Could not get/create customer: ${e.message}`);
@@ -140,7 +142,7 @@ export class SubscriptionController {
       customerId,
       description: dto.description,
       metadata: {
-        userId: user.userId,
+        userId,
         ...dto.metadata,
       },
     });
@@ -182,10 +184,10 @@ export class SubscriptionController {
   @Get('current')
   @UseGuards(JwtAuthGuard)
   async getCurrentSubscription(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
   ) {
     const subscription = await this.subscriptionService.getSubscription(
-      user.userId,
+      user._id.toString(),
     );
     return {
       success: true,
@@ -203,13 +205,13 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async createCheckout(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Body() dto: CreateCheckoutSessionDto,
   ) {
-    this.logger.log(`Creating checkout session for user: ${user.userId}`);
+    this.logger.log(`Creating checkout session for user: ${user._id.toString()}`);
 
     const session = await this.subscriptionService.createCheckoutSession({
-      userId: user.userId,
+      userId: user._id.toString(),
       priceId: dto.priceId,
       isYearly: dto.isYearly || false,
       successUrl: dto.successUrl,
@@ -231,7 +233,7 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async verifyCheckout(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Body() body: { sessionId: string },
   ) {
     this.logger.log(`Verifying checkout session: ${body.sessionId}`);
@@ -253,11 +255,11 @@ export class SubscriptionController {
   @Put('upgrade')
   @UseGuards(JwtAuthGuard)
   async upgradeSubscription(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Body() dto: UpdateSubscriptionDto,
   ) {
     const result = await this.subscriptionService.updateSubscription({
-      userId: user.userId,
+      userId: user._id.toString(),
       newPriceId: dto.newPriceId,
       isYearly: dto.isYearly || false,
     });
@@ -274,12 +276,12 @@ export class SubscriptionController {
   @Delete('cancel')
   @UseGuards(JwtAuthGuard)
   async cancelSubscription(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Query('immediately') immediately?: string,
   ) {
     const cancelImmediately = immediately === 'true';
     const result = await this.subscriptionService.cancelSubscription(
-      user.userId,
+      user._id.toString(),
       cancelImmediately,
     );
 
@@ -296,9 +298,9 @@ export class SubscriptionController {
   /// POST /subscription/resume
   @Post('resume')
   @UseGuards(JwtAuthGuard)
-  async resumeSubscription(@CurrentUser() user: { userId: string }) {
+  async resumeSubscription(@CurrentUser() user: UserPayload) {
     const result = await this.subscriptionService.resumeSubscription(
-      user.userId,
+      user._id.toString(),
     );
 
     return {
@@ -314,11 +316,11 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async startTrial(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Body() dto: { tier: string },
   ) {
     const result = await this.subscriptionService.startTrial(
-      user.userId,
+      user._id.toString(),
       dto.tier || 'pro',
     );
 
@@ -334,8 +336,8 @@ export class SubscriptionController {
   @Post('restore')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async restorePurchases(@CurrentUser() user: { userId: string }) {
-    const result = await this.subscriptionService.restorePurchases(user.userId);
+  async restorePurchases(@CurrentUser() user: UserPayload) {
+    const result = await this.subscriptionService.restorePurchases(user._id.toString());
 
     return {
       success: result.success,
@@ -354,9 +356,9 @@ export class SubscriptionController {
   /// GET /subscription/payment-methods
   @Get('payment-methods')
   @UseGuards(JwtAuthGuard)
-  async getPaymentMethods(@CurrentUser() user: { userId: string }) {
+  async getPaymentMethods(@CurrentUser() user: UserPayload) {
     const methods = await this.subscriptionService.getPaymentMethods(
-      user.userId,
+      user._id.toString(),
     );
 
     return {
@@ -370,11 +372,11 @@ export class SubscriptionController {
   @Post('payment-methods')
   @UseGuards(JwtAuthGuard)
   async addPaymentMethod(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Body() dto: AddPaymentMethodDto,
   ) {
     const result = await this.subscriptionService.addPaymentMethod(
-      user.userId,
+      user._id.toString(),
       {
         paymentMethodId: dto.paymentMethodId,
         setAsDefault: dto.setAsDefault,
@@ -393,10 +395,10 @@ export class SubscriptionController {
   @Delete('payment-methods/:methodId')
   @UseGuards(JwtAuthGuard)
   async removePaymentMethod(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Param('methodId') methodId: string,
   ) {
-    await this.subscriptionService.removePaymentMethod(user.userId, methodId);
+    await this.subscriptionService.removePaymentMethod(user._id.toString(), methodId);
 
     return {
       success: true,
@@ -409,11 +411,11 @@ export class SubscriptionController {
   @Put('payment-methods/:methodId/default')
   @UseGuards(JwtAuthGuard)
   async setDefaultPaymentMethod(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Param('methodId') methodId: string,
   ) {
     await this.subscriptionService.setDefaultPaymentMethod(
-      user.userId,
+      user._id.toString(),
       methodId,
     );
 
@@ -433,11 +435,11 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async createPortalSession(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Body() dto: { returnUrl: string },
   ) {
     const session = await this.subscriptionService.createPortalSession(
-      user.userId,
+      user._id.toString(),
       dto.returnUrl,
     );
 
@@ -458,11 +460,11 @@ export class SubscriptionController {
   @Get('invoices')
   @UseGuards(JwtAuthGuard)
   async getInvoices(
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: UserPayload,
     @Query('limit') limit?: string,
   ) {
     const invoices = await this.subscriptionService.getInvoices(
-      user.userId,
+      user._id.toString(),
       parseInt(limit || '10'),
     );
 
@@ -480,8 +482,8 @@ export class SubscriptionController {
   /// GET /subscription/features
   @Get('features')
   @UseGuards(JwtAuthGuard)
-  async getFeatureAccess(@CurrentUser() user: { userId: string }) {
-    const features = await this.subscriptionService.getFeatureAccess(user.userId);
+  async getFeatureAccess(@CurrentUser() user: UserPayload) {
+    const features = await this.subscriptionService.getFeatureAccess(user._id.toString());
     return {
       success: true,
       data: features,
@@ -492,8 +494,8 @@ export class SubscriptionController {
   /// GET /subscription/boosts
   @Get('boosts')
   @UseGuards(JwtAuthGuard)
-  async getRemainingBoosts(@CurrentUser() user: { userId: string }) {
-    const boosts = await this.subscriptionService.getRemainingBoosts(user.userId);
+  async getRemainingBoosts(@CurrentUser() user: UserPayload) {
+    const boosts = await this.subscriptionService.getRemainingBoosts(user._id.toString());
     return {
       success: true,
       data: { remainingBoosts: boosts },
@@ -505,8 +507,8 @@ export class SubscriptionController {
   @Post('boosts/use')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async useBoost(@CurrentUser() user: { userId: string }) {
-    const result = await this.subscriptionService.useBoost(user.userId);
+  async useBoost(@CurrentUser() user: UserPayload) {
+    const result = await this.subscriptionService.useBoost(user._id.toString());
     return {
       success: result.success,
       data: result,
@@ -518,9 +520,9 @@ export class SubscriptionController {
   @Post('sync')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async syncSubscription(@CurrentUser() user: { userId: string }) {
-    await this.subscriptionService.syncSubscription(user.userId);
-    const subscription = await this.subscriptionService.getSubscription(user.userId);
+  async syncSubscription(@CurrentUser() user: UserPayload) {
+    await this.subscriptionService.syncSubscription(user._id.toString());
+    const subscription = await this.subscriptionService.getSubscription(user._id.toString());
     return {
       success: true,
       data: subscription,
