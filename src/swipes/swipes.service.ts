@@ -1142,29 +1142,55 @@ export class SwipesService {
     targetId: string,
     session: ClientSession,
   ): Promise<Match> {
-    const matchData =
-      role === UserRole.ARTIST
-        ? {
-            artistId: new Types.ObjectId(userId),
-            venueId: new Types.ObjectId(targetId),
-          }
-        : {
-            artistId: new Types.ObjectId(targetId),
-            venueId: new Types.ObjectId(userId),
-          };
+    // Look up the current user's profile ID (targetId is already a profile ID)
+    let artistProfileId: string;
+    let venueProfileId: string;
+    let artistUserId: string;
+    let venueUserId: string;
 
-    const [match] = await this.matchModel.create(
-      [
-        {
-          ...matchData,
-          status: 'active',
-          lastMessageAt: new Date(),
-        },
-      ],
-      { session },
+    if (role === UserRole.ARTIST) {
+      // Current user is artist, target is venue
+      const artist = await this.artistModel.findOne({ userId }).select('_id').session(session).exec();
+      if (!artist) {
+        throw new NotFoundException('Artist profile not found for current user');
+      }
+      artistProfileId = artist._id.toString();
+      venueProfileId = targetId;
+      artistUserId = userId;
+      venueUserId = targetUserId.toString();
+    } else {
+      // Current user is venue, target is artist
+      const venue = await this.venueModel.findOne({ userId }).select('_id').session(session).exec();
+      if (!venue) {
+        throw new NotFoundException('Venue profile not found for current user');
+      }
+      artistProfileId = targetId;
+      venueProfileId = venue._id.toString();
+      artistUserId = targetUserId.toString();
+      venueUserId = userId;
+    }
+
+    this.logger.log(
+      `✨ [Swipes] Creating match: artist=${artistProfileId}, venue=${venueProfileId}, ` +
+      `artistUser=${artistUserId}, venueUser=${venueUserId}`,
     );
 
-    return match;
+    const newMatch = new this.matchModel({
+      artist: new Types.ObjectId(artistProfileId),
+      venue: new Types.ObjectId(venueProfileId),
+      artistUser: new Types.ObjectId(artistUserId),
+      venueUser: new Types.ObjectId(venueUserId),
+      status: 'active',
+      hasMessages: false,
+      unreadCount: { artist: 0, venue: 0 },
+      initiatedBy: role === UserRole.ARTIST ? 'artist' : 'venue',
+      lastMessageAt: new Date(),
+    });
+
+    await newMatch.save({ session });
+
+    this.logger.log(`✅ [Swipes] Match created: ${newMatch._id}`);
+    return newMatch;
   }
 
   /**
