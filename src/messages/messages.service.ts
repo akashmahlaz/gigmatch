@@ -443,16 +443,26 @@ export class MessagesService {
       `artistProfile=${artistProfileId}, venueProfile=${venueProfileId}`,
     );
 
-    // Find existing match using user IDs (try both orderings for robustness)
+    // Find existing match using user IDs OR profile IDs (swipe-created matches may only have profile IDs)
     let match = await this.matchModel
       .findOne({
         $or: [
           { artistUser: artistUserId, venueUser: venueUserId },
           { artistUser: venueUserId, venueUser: artistUserId },
+          ...(artistProfileId && venueProfileId
+            ? [
+                { artist: new Types.ObjectId(artistProfileId), venue: new Types.ObjectId(venueProfileId) },
+                { artist: new Types.ObjectId(venueProfileId), venue: new Types.ObjectId(artistProfileId) },
+              ]
+            : []),
         ],
         status: { $ne: 'blocked' },
       })
       .exec();
+
+    this.logger.log(
+      `🔍 Match lookup result: ${match ? `found match ${match._id}` : 'no match found'}`,
+    );
 
     // Get participant details for response
     let participantName: string | undefined;
@@ -533,6 +543,37 @@ export class MessagesService {
         lastMessagePreview: null,
       };
     } catch (error) {
+      // Handle duplicate key error (race condition or match created by swipe system)
+      if (error.code === 11000) {
+        this.logger.warn(
+          `⚠️ Duplicate match detected, fetching existing match: artist=${artistProfileId}, venue=${venueProfileId}`,
+        );
+        const existingMatch = await this.matchModel
+          .findOne({
+            $or: [
+              { artist: new Types.ObjectId(artistProfileId!), venue: new Types.ObjectId(venueProfileId!) },
+              { artistUser: artistUserId, venueUser: venueUserId },
+            ],
+          })
+          .exec();
+
+        if (existingMatch) {
+          this.logger.log(`✅ Found existing match after duplicate error: ${existingMatch._id}`);
+          return {
+            id: existingMatch._id.toString(),
+            matchId: existingMatch._id.toString(),
+            participantId: participantProfileId,
+            participantUserId,
+            participantType,
+            participantName,
+            participantPhoto,
+            isMatch: true,
+            lastMessageAt: existingMatch.lastMessageAt,
+            lastMessagePreview: existingMatch.lastMessagePreview,
+          };
+        }
+      }
+
       this.logger.error(
         `❌ Failed to create match: ${error.message}`,
         error.stack,

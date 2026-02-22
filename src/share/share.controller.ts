@@ -7,7 +7,7 @@
 /// they need to be at the root for social media crawlers and app verification.
 
 import { Controller, Get, Param, Res, Header, Logger } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { ShareService } from './share.service';
 
 @Controller()

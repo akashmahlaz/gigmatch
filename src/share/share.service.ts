@@ -24,7 +24,8 @@ interface OgData {
 export class ShareService {
   private readonly logger = new Logger(ShareService.name);
 
-  private readonly APP_URL = 'https://gigmatch.app';
+  // Share page canonical URL — uses env var, falls back to local dev IP
+  private readonly APP_URL = process.env.SHARE_BASE_URL || 'http://10.183.58.168:3000';
   private readonly FALLBACK_IMAGE =
     'https://res.cloudinary.com/gigmatch/image/upload/v1/og/gigmatch-default.png';
 
@@ -44,7 +45,8 @@ export class ShareService {
     this.logger.log(`📤 [Share] Generating artist share page: ${artistId}`);
 
     try {
-      const artist = await this.artistModel.findById(artistId).lean();
+      // Use any to access raw document fields from lean()
+      const artist: any = await this.artistModel.findById(artistId).lean();
 
       if (!artist) {
         this.logger.warn(`⚠️ [Share] Artist not found: ${artistId}`);
@@ -60,6 +62,7 @@ export class ShareService {
       const name = artist.stageName || artist.displayName || 'Artist';
       const genres = artist.genres?.join(', ') || '';
       const location = artist.location?.city || '';
+      const photo = artist.profilePhotoUrl || artist.photos?.[0]?.url || '';
       const description = this.buildDescription([
         genres ? `🎸 ${genres}` : '',
         location ? `📍 ${location}` : '',
@@ -70,7 +73,7 @@ export class ShareService {
       return this.generateOgHtml({
         title: `${name} on GigMatch`,
         description,
-        image: artist.profilePhoto || this.FALLBACK_IMAGE,
+        image: photo || this.FALLBACK_IMAGE,
         url: `${this.APP_URL}/artist/${artistId}`,
         type: 'profile',
       });
@@ -88,7 +91,8 @@ export class ShareService {
     this.logger.log(`📤 [Share] Generating venue share page: ${venueId}`);
 
     try {
-      const venue = await this.venueModel.findById(venueId).lean();
+      // Use any to access raw document fields from lean()
+      const venue: any = await this.venueModel.findById(venueId).lean();
 
       if (!venue) {
         this.logger.warn(`⚠️ [Share] Venue not found: ${venueId}`);
@@ -101,9 +105,10 @@ export class ShareService {
         });
       }
 
-      const name = venue.name || 'Venue';
+      const name = venue.venueName || 'Venue';
       const venueType = venue.venueType || '';
       const location = venue.location?.city || '';
+      const photo = venue.photos?.[0]?.url || '';
       const description = this.buildDescription([
         venueType ? `🏛️ ${venueType}` : '',
         location ? `📍 ${location}` : '',
@@ -114,7 +119,7 @@ export class ShareService {
       return this.generateOgHtml({
         title: `${name} on GigMatch`,
         description,
-        image: venue.profilePhotoUrl || this.FALLBACK_IMAGE,
+        image: photo || this.FALLBACK_IMAGE,
         url: `${this.APP_URL}/venue/${venueId}`,
         type: 'profile',
       });
@@ -132,7 +137,7 @@ export class ShareService {
     this.logger.log(`📤 [Share] Generating post share page: ${postId}`);
 
     try {
-      const post = await this.postModel.findById(postId).lean();
+      const post: any = await this.postModel.findById(postId).lean();
 
       if (!post) {
         this.logger.warn(`⚠️ [Share] Post not found: ${postId}`);
@@ -176,7 +181,7 @@ export class ShareService {
     this.logger.log(`📤 [Share] Generating gig share page: ${gigId}`);
 
     try {
-      const gig = await this.gigModel.findById(gigId).lean();
+      const gig: any = await this.gigModel.findById(gigId).lean();
 
       if (!gig) {
         this.logger.warn(`⚠️ [Share] Gig not found: ${gigId}`);
@@ -189,25 +194,26 @@ export class ShareService {
         });
       }
 
-      const venueName = gig.venueName || 'a venue';
+      const title = gig.title || 'Gig on GigMatch';
+      const city = gig.location?.city || '';
       const date = gig.date ? new Date(gig.date).toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
       }) : '';
-      const genre = gig.genre || '';
-      const payment = gig.payment ? `$${gig.payment}` : '';
+      const genres = gig.requiredGenres?.join(', ') || '';
+      const budget = gig.budget ? `$${gig.budget}` : '';
 
       const description = this.buildDescription([
-        `📍 ${venueName}`,
+        city ? `📍 ${city}` : '',
         date ? `📅 ${date}` : '',
-        genre ? `🎸 ${genre}` : '',
-        payment ? `💰 ${payment}` : '',
+        genres ? `🎸 ${genres}` : '',
+        budget ? `💰 ${budget}` : '',
         gig.description ? gig.description.substring(0, 100) : '',
       ]);
 
       return this.generateOgHtml({
-        title: `Gig at ${venueName} on GigMatch`,
+        title: `${title} - GigMatch`,
         description,
         image: this.FALLBACK_IMAGE,
         url: `${this.APP_URL}/gig/${gigId}`,
@@ -227,7 +233,7 @@ export class ShareService {
     this.logger.log(`📤 [Share] Generating story share page: ${storyId}`);
 
     try {
-      const story = await this.storyModel.findById(storyId).lean();
+      const story: any = await this.storyModel.findById(storyId).lean();
 
       if (!story) {
         return this.generateOgHtml({
