@@ -29,8 +29,8 @@ export class StripeWebhookController {
     private readonly subscriptionService: SubscriptionService,
     private readonly configService: ConfigService,
   ) {
-    const stripeKey = this.configService.get<string>('stripe.secretKey');
-    this.webhookSecret = this.configService.get<string>('stripe.webhookSecret');
+    const stripeKey = this.configService.get<string>('STRIPE_SECRET_KEY');
+    this.webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET');
 
     if (stripeKey) {
       this.stripe = new Stripe(stripeKey, {

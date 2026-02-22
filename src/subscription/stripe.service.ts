@@ -112,7 +112,7 @@ export class StripeService {
         customerId,
       )) as Stripe.Customer;
     } catch (error) {
-      if (error.type === 'StripeCustomerNotFoundError') {
+      if (error.code === 'resource_missing') {
         return null;
       }
       throw error;
@@ -478,7 +478,7 @@ export class StripeService {
     }
 
     return this.stripe.subscriptions.update(subscriptionId, {
-      pause_collection: '',
+      pause_collection: null as any,
     });
   }
 
@@ -582,6 +582,17 @@ export class StripeService {
     return this.stripe.paymentIntents.cancel(paymentIntentId);
   }
 
+  /// Retrieve payment intent (read-only, does not modify)
+  async retrievePaymentIntent(
+    paymentIntentId: string,
+  ): Promise<Stripe.PaymentIntent> {
+    if (!this.isConfigured) {
+      return this.createMockPaymentIntent({ amount: 0, currency: 'usd' });
+    }
+
+    return this.stripe.paymentIntents.retrieve(paymentIntentId);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // PAYMENT METHODS
   // ═══════════════════════════════════════════════════════════════════════
@@ -618,7 +629,7 @@ export class StripeService {
         brand: 'visa',
         last4: '4242',
         exp_month: 12,
-        exp_year: 2025,
+        exp_year: 2028,
         funding: 'credit',
       },
       created: Date.now() / 1000,

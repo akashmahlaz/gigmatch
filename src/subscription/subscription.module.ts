@@ -9,6 +9,7 @@ import { ConfigModule } from '@nestjs/config';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
 import { StripeService } from './stripe.service';
+import { FeatureCheckService } from './feature-check.service';
 
 import { User, UserSchema } from '../schemas/user.schema';
 import {
@@ -32,7 +33,7 @@ import {
     ]),
   ],
   controllers: [SubscriptionController],
-  providers: [SubscriptionService, StripeService],
-  exports: [SubscriptionService, StripeService],
+  providers: [SubscriptionService, StripeService, FeatureCheckService],
+  exports: [SubscriptionService, StripeService, FeatureCheckService],
 })
 export class SubscriptionModule {}

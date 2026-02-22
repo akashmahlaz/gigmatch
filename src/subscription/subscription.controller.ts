@@ -461,10 +461,12 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   async getInvoices(
     @CurrentUser() user: UserPayload,
+    @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     const invoices = await this.subscriptionService.getInvoices(
       user._id.toString(),
+      parseInt(page || '1'),
       parseInt(limit || '10'),
     );
 

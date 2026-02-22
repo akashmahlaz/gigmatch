@@ -348,14 +348,15 @@ export class SubscriptionService {
       subscription.stripeSubscriptionId = stripeSubscriptionId;
       subscription.stripeCustomerId = stripeCustomerId;
       subscription.isYearlyBilling = isYearly;
-      subscription.cancelAtPeriodEnd = undefined;
+      subscription.cancelAtPeriodEnd = false;
       subscription.updatedAt = new Date();
     } else {
       // Create new subscription
       subscription = new this.subscriptionModel({
         userId,
         tier,
-        status: 'active',
+        plan: tier,
+        status: SubscriptionStatus.ACTIVE,
         stripeSubscriptionId,
         stripeCustomerId,
         isYearlyBilling: isYearly,
@@ -374,7 +375,7 @@ export class SubscriptionService {
     await this.userModel.findByIdAndUpdate(userId, {
       subscriptionTier: tier,
       hasActiveSubscription: true,
-      subscriptionId: subscription._id,
+      subscription: subscription._id,
     });
 
     return subscription;
@@ -465,11 +466,13 @@ export class SubscriptionService {
     subscription.updatedAt = new Date();
     await subscription.save();
 
-    // Update user
-    await this.userModel.findByIdAndUpdate(userIdObj, {
-      subscriptionTier: 'free',
-      hasActiveSubscription: false,
-    });
+    // Update user — only revoke access on immediate cancel
+    if (immediately) {
+      await this.userModel.findByIdAndUpdate(userIdObj, {
+        subscriptionTier: 'free',
+        hasActiveSubscription: false,
+      });
+    }
 
     return subscription;
   }
@@ -497,7 +500,7 @@ export class SubscriptionService {
     await this.stripeService.resumeSubscription(
       subscription.stripeSubscriptionId,
     );
-    subscription.cancelAtPeriodEnd = undefined;
+    subscription.cancelAtPeriodEnd = false;
     subscription.status = SubscriptionStatus.ACTIVE;
     subscription.updatedAt = new Date();
 
@@ -602,7 +605,7 @@ export class SubscriptionService {
     await this.userModel.findByIdAndUpdate(userIdObj, {
       subscriptionTier: tier,
       hasActiveSubscription: true,
-      subscriptionId: subscription._id,
+      subscription: subscription._id,
     });
 
     return subscription;
@@ -720,7 +723,7 @@ export class SubscriptionService {
   /// Get user payment methods
   async getPaymentMethods(userId: string): Promise<PaymentMethodDocument[]> {
     return this.paymentMethodModel
-      .find({ user: new Types.ObjectId(userId) })
+      .find({ userId: new Types.ObjectId(userId) })
       .exec();
   }
 
@@ -747,7 +750,7 @@ export class SubscriptionService {
 
     await this.paymentMethodModel
       .findOneAndUpdate(
-        { _id: new Types.ObjectId(paymentMethodId), user: userIdObj },
+        { _id: new Types.ObjectId(paymentMethodId), userId: userIdObj },
         { isDefault: true },
       )
       .exec();
@@ -761,7 +764,7 @@ export class SubscriptionService {
     const paymentMethod = await this.paymentMethodModel
       .findOne({
         _id: new Types.ObjectId(paymentMethodId),
-        user: new Types.ObjectId(userId),
+        userId: new Types.ObjectId(userId),
       })
       .exec();
 
@@ -810,14 +813,18 @@ export class SubscriptionService {
     plan: SubscriptionPlan,
   ): Promise<InvoiceDocument> {
     const invoice = new this.invoiceModel({
-      user: userId,
-      stripeInvoiceId: session.invoice as string,
-      stripePaymentIntentId: session.payment_intent,
-      amount: session.amount_paid,
-      currency: session.currency?.toUpperCase() || 'USD',
-      description: `${plan.name} Subscription (${session.metadata?.isYearly === 'true' ? 'Yearly' : 'Monthly'})`,
+      userId,
+      stripeInvoiceId: session.invoice as string || `inv_manual_${Date.now()}`,
+      amount: session.amount_total || session.amount_paid || 0,
+      amountDue: 0,
+      amountPaid: session.amount_total || session.amount_paid || 0,
       status: 'paid',
       paidAt: new Date(),
+      metadata: {
+        description: `${plan.name} Subscription (${session.metadata?.isYearly === 'true' ? 'Yearly' : 'Monthly'})`,
+        currency: session.currency?.toUpperCase() || 'USD',
+        stripePaymentIntentId: session.payment_intent,
+      },
     });
 
     await invoice.save();
@@ -940,8 +947,8 @@ export class SubscriptionService {
     // Update subscription status
     await this.subscriptionModel
       .findOneAndUpdate(
-        { user: user._id },
-        { status: 'past_due', updatedAt: new Date() },
+        { userId: user._id },
+        { status: SubscriptionStatus.PAST_DUE, updatedAt: new Date() },
       )
       .exec();
 
@@ -978,9 +985,7 @@ export class SubscriptionService {
     const subscription = await this.getCurrentSubscription(userId);
     return {
       success:
-        (subscription !== null && subscription.hasActiveSubscription) ||
-        false ||
-        false,
+        subscription !== null && (subscription.hasActiveSubscription ?? false),
       subscription,
     };
   }
@@ -989,7 +994,7 @@ export class SubscriptionService {
   async checkFeatureAccess(userId: string, feature: string): Promise<boolean> {
     const subscription = await this.getCurrentSubscription(userId);
 
-    if (!subscription || !subscription.hasActiveSubscription || false) {
+    if (!subscription || !subscription.hasActiveSubscription) {
       // Check free tier access
       const freeFeatures = this.getFeaturesForTier('free');
       return freeFeatures[feature] || false;
@@ -1002,7 +1007,7 @@ export class SubscriptionService {
   async getFeatureAccess(userId: string): Promise<Record<string, any>> {
     const subscription = await this.getCurrentSubscription(userId);
 
-    if ((subscription && subscription.hasActiveSubscription) || false) {
+    if (subscription && subscription.hasActiveSubscription) {
       return subscription.features || {};
     }
 
@@ -1251,9 +1256,8 @@ export class SubscriptionService {
   ): Promise<{ valid: boolean; receipt?: any; error?: string }> {
     try {
       // Verify payment intent exists and is successful
-      const paymentIntent = await this.stripeService.confirmPaymentIntent(
+      const paymentIntent = await this.stripeService.retrievePaymentIntent(
         paymentIntentId,
-        '',
       );
 
       if (!paymentIntent) {
