@@ -64,4 +64,7 @@ export class MatchWithDetailsDto {
 
   @ApiProperty()
   unreadCount: number;
+
+  @ApiProperty()
+  isMuted: boolean;
 }

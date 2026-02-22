@@ -380,6 +380,10 @@ export class MatchesService {
       `unread=${unreadCount} lastMsg="${lastMessageContent}"`,
     );
 
+    const isMuted = isArtist
+      ? match.isMuted?.artist || false
+      : match.isMuted?.venue || false;
+
     return {
       id: match._id.toString(),
       matchedAt: matchedAtDate,
@@ -393,6 +397,7 @@ export class MatchesService {
           }
         : undefined,
       unreadCount,
+      isMuted,
     };
   }
 }

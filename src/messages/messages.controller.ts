@@ -24,6 +24,7 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MessagesService } from './messages.service';
+import { MessagesGateway } from './messages.gateway';
 import { SendMessageDto, GetMessagesDto, MarkMessagesReadDto, MarkMultipleMessagesReadDto } from './dto/message.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -36,7 +37,10 @@ import { UserPayload } from '../schemas/user.schema';
 export class MessagesController {
   private readonly logger = new Logger(MessagesController.name);
 
-  constructor(private readonly messagesService: MessagesService) {}
+  constructor(
+    private readonly messagesService: MessagesService,
+    private readonly messagesGateway: MessagesGateway,
+  ) {}
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
@@ -108,11 +112,28 @@ export class MessagesController {
     @CurrentUser() user: UserPayload,
     @Body() sendMessageDto: SendMessageDto,
   ) {
-    return this.messagesService.sendMessage(
+    const message = await this.messagesService.sendMessage(
       user._id.toString(),
       user.role,
       sendMessageDto,
     );
+
+    // Broadcast via WebSocket so the receiver gets it in real-time
+    this.logger.log(
+      `📨 [REST sendMessage] user=${user.email} matchId=${sendMessageDto.matchId} ` +
+      `type=${sendMessageDto.messageType || 'text'}`,
+    );
+    this.messagesGateway.server
+      .to(`match:${sendMessageDto.matchId}`)
+      .emit('new_message', {
+        message,
+        sender: {
+          id: user._id.toString(),
+          name: user.fullName ?? user.email,
+        },
+      });
+
+    return message;
   }
 
   @Get()
@@ -145,6 +166,18 @@ export class MessagesController {
       user.role,
       markReadDto,
     );
+
+    // Broadcast read receipt via WebSocket
+    this.logger.log(
+      `✅ [REST markAsRead] user=${user.email} matchId=${markReadDto.matchId}`,
+    );
+    this.messagesGateway.server
+      .to(`match:${markReadDto.matchId}`)
+      .emit('messages_read', {
+        matchId: markReadDto.matchId,
+        readBy: user._id.toString(),
+      });
+
     return { message: 'Messages marked as read' };
   }
 
@@ -161,20 +194,33 @@ export class MessagesController {
     }
 
     // Mark each message as read
+    const matchIdsRead = new Set<string>();
     for (const messageId of dto.messageIds) {
       try {
         const message = await this.messagesService.getMessageById(messageId);
         if (message && message.sender.toString() !== user._id.toString()) {
+          const matchId = message.match.toString();
           await this.messagesService.markAsRead(
             user._id.toString(),
             user.role,
-            { matchId: message.match.toString(), messageIds: [messageId] },
+            { matchId, messageIds: [messageId] },
           );
+          matchIdsRead.add(matchId);
         }
       } catch (err) {
         // Skip individual errors
         this.logger.warn(`Failed to mark message ${messageId} as read`);
       }
+    }
+
+    // Broadcast read receipts for each affected match room
+    for (const matchId of matchIdsRead) {
+      this.messagesGateway.server
+        .to(`match:${matchId}`)
+        .emit('messages_read', {
+          matchId,
+          readBy: user._id.toString(),
+        });
     }
 
     return { message: 'Messages marked as read' };
