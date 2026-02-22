@@ -7,8 +7,18 @@ import * as bodyParser from 'body-parser';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Global prefix for all routes
-  app.setGlobalPrefix('api/v1');
+  // Global prefix for all routes (exclude share & well-known routes)
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      'share/artist/:id',
+      'share/venue/:id',
+      'share/post/:id',
+      'share/gig/:id',
+      'share/story/:id',
+      '.well-known/assetlinks.json',
+      '.well-known/apple-app-site-association',
+    ],
+  });
   
   // Increase body size limit for media uploads (50MB for base64 encoded files)
   app.use(bodyParser.json({ limit: '50mb' }));

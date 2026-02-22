@@ -338,6 +338,11 @@ export class MessagesService {
     participantId: string,
     participantType: 'artist' | 'venue',
   ): Promise<any> {
+    this.logger.log(
+      `🔄 getOrCreateConversation: userId=${userId}, userRole=${userRole}, ` +
+      `participantId=${participantId}, participantType=${participantType}`,
+    );
+
     // Look up the User ID from the profile ID
     let participantUserId: string;
     let participantProfileId: string;
@@ -352,10 +357,27 @@ export class MessagesService {
       participantUserId = artist.userId.toString();
       participantProfileId = participantId;
 
-      // If current user is a venue, get their venue profile ID
+      // Current user must be either a venue or also have a venue profile
+      // Always try to get the current user's own profile for the match record
       if (userRole === 'venue') {
         const venue = await this.venueModel.findOne({ userId: userId }).exec();
         currentUserProfileId = venue?._id.toString() || null;
+        if (!currentUserProfileId) {
+          this.logger.warn(`Venue profile not found for userId=${userId}`);
+          throw new BadRequestException(
+            'Your venue profile is incomplete. Please complete your profile first.',
+          );
+        }
+      } else if (userRole === 'artist') {
+        // Artist-to-artist: get current user's artist profile
+        const currentArtist = await this.artistModel.findOne({ userId: userId }).exec();
+        currentUserProfileId = currentArtist?._id.toString() || null;
+        if (!currentUserProfileId) {
+          this.logger.warn(`Artist profile not found for userId=${userId}`);
+          throw new BadRequestException(
+            'Your artist profile is incomplete. Please complete your profile first.',
+          );
+        }
       }
     } else {
       // participantId is a Venue profile ID - look up the user
@@ -366,10 +388,26 @@ export class MessagesService {
       participantUserId = venue.userId.toString();
       participantProfileId = participantId;
 
-      // If current user is an artist, get their artist profile ID
+      // Current user must have their own profile for the match record
       if (userRole === 'artist') {
         const artist = await this.artistModel.findOne({ userId: userId }).exec();
         currentUserProfileId = artist?._id.toString() || null;
+        if (!currentUserProfileId) {
+          this.logger.warn(`Artist profile not found for userId=${userId}`);
+          throw new BadRequestException(
+            'Your artist profile is incomplete. Please complete your profile first.',
+          );
+        }
+      } else if (userRole === 'venue') {
+        // Venue-to-venue: get current user's venue profile
+        const currentVenue = await this.venueModel.findOne({ userId: userId }).exec();
+        currentUserProfileId = currentVenue?._id.toString() || null;
+        if (!currentUserProfileId) {
+          this.logger.warn(`Venue profile not found for userId=${userId}`);
+          throw new BadRequestException(
+            'Your venue profile is incomplete. Please complete your profile first.',
+          );
+        }
       }
     }
 
@@ -378,17 +416,40 @@ export class MessagesService {
       throw new BadRequestException('Cannot create conversation with yourself');
     }
 
-    // Determine artist and venue IDs for the match
-    const artistUserId = participantType === 'artist' ? participantUserId : userId;
-    const venueUserId = participantType === 'venue' ? participantUserId : userId;
-    const artistProfileId = participantType === 'artist' ? participantProfileId : currentUserProfileId;
-    const venueProfileId = participantType === 'venue' ? participantProfileId : currentUserProfileId;
+    // Determine artist and venue user IDs for the match
+    // The match schema requires artistUser + venueUser to be distinct roles.
+    // If both users have the same role, we still need to map them properly.
+    let artistUserId: string;
+    let venueUserId: string;
+    let artistProfileId: string | null;
+    let venueProfileId: string | null;
 
-    // Find existing match using user IDs
+    if (participantType === 'artist') {
+      // Participant is an artist, current user provides the venue side
+      artistUserId = participantUserId;
+      artistProfileId = participantProfileId;
+      venueUserId = userId;
+      venueProfileId = currentUserProfileId;
+    } else {
+      // Participant is a venue, current user provides the artist side
+      artistUserId = userId;
+      artistProfileId = currentUserProfileId;
+      venueUserId = participantUserId;
+      venueProfileId = participantProfileId;
+    }
+
+    this.logger.log(
+      `🔍 Match lookup: artistUser=${artistUserId}, venueUser=${venueUserId}, ` +
+      `artistProfile=${artistProfileId}, venueProfile=${venueProfileId}`,
+    );
+
+    // Find existing match using user IDs (try both orderings for robustness)
     let match = await this.matchModel
       .findOne({
-        artistUser: artistUserId,
-        venueUser: venueUserId,
+        $or: [
+          { artistUser: artistUserId, venueUser: venueUserId },
+          { artistUser: venueUserId, venueUser: artistUserId },
+        ],
         status: { $ne: 'blocked' },
       })
       .exec();
@@ -426,33 +487,63 @@ export class MessagesService {
     }
 
     // No match exists - create a new conversation/match
-    const newMatch = new this.matchModel({
-      artist: artistProfileId ? new Types.ObjectId(artistProfileId) : undefined,
-      venue: venueProfileId ? new Types.ObjectId(venueProfileId) : undefined,
-      artistUser: artistUserId,
-      venueUser: venueUserId,
-      status: 'active',
-      hasMessages: false,
-      unreadCount: { artist: 0, venue: 0 },
-      initiatedBy: userRole as 'artist' | 'venue',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    // Final safety guard: both profile IDs must be non-null for match creation
+    if (!artistProfileId || !venueProfileId) {
+      this.logger.error(
+        `❌ Cannot create match: artistProfileId=${artistProfileId}, venueProfileId=${venueProfileId}`,
+      );
+      throw new BadRequestException(
+        'Cannot create conversation: missing profile information.',
+      );
+    }
 
-    await newMatch.save();
+    this.logger.log(
+      `✨ Creating new match: artist=${artistProfileId}, venue=${venueProfileId}, ` +
+      `artistUser=${artistUserId}, venueUser=${venueUserId}`,
+    );
 
-    return {
-      id: newMatch._id.toString(),
-      matchId: newMatch._id.toString(),
-      participantId: participantProfileId,
-      participantUserId,
-      participantType,
-      participantName,
-      participantPhoto,
-      isMatch: false,
-      lastMessageAt: null,
-      lastMessagePreview: null,
-    };
+    try {
+      const newMatch = new this.matchModel({
+        artist: new Types.ObjectId(artistProfileId),
+        venue: new Types.ObjectId(venueProfileId),
+        artistUser: new Types.ObjectId(artistUserId),
+        venueUser: new Types.ObjectId(venueUserId),
+        status: 'active',
+        hasMessages: false,
+        unreadCount: { artist: 0, venue: 0 },
+        initiatedBy: userRole as 'artist' | 'venue',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await newMatch.save();
+
+      this.logger.log(`✅ Match created: ${newMatch._id.toString()}`);
+
+      return {
+        id: newMatch._id.toString(),
+        matchId: newMatch._id.toString(),
+        participantId: participantProfileId,
+        participantUserId,
+        participantType,
+        participantName,
+        participantPhoto,
+        isMatch: false,
+        lastMessageAt: null,
+        lastMessagePreview: null,
+      };
+    } catch (error) {
+      this.logger.error(
+        `❌ Failed to create match: ${error.message}`,
+        error.stack,
+      );
+      if (error.name === 'ValidationError') {
+        throw new BadRequestException(
+          'Failed to create conversation: invalid data.',
+        );
+      }
+      throw error;
+    }
   }
 
   /**

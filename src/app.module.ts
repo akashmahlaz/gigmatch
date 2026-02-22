@@ -29,6 +29,7 @@ import { PostsModule } from './posts/posts.module';
 import { StoriesModule } from './stories/stories.module';
 import { WalletModule } from './wallet/wallet.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { ShareModule } from './share/share.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     AnalyticsModule,
     WalletModule,
     WebhooksModule,
+    ShareModule,
   ],
 })
 export class AppModule {}
