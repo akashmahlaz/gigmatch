@@ -194,4 +194,22 @@ export class PostsController {
       Number(limit),
     );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOOST POST (Premium Feature)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @Post(':id/boost')
+  @ApiOperation({ summary: 'Boost a post to the top of feeds (Pro/Premium only)' })
+  @ApiParam({ name: 'id', description: 'Post ID' })
+  @ApiResponse({ status: 200, description: 'Post boosted successfully' })
+  @ApiResponse({ status: 403, description: 'Requires Pro or Premium subscription' })
+  async boostPost(@CurrentUser() user: UserPayload, @Param('id') id: string) {
+    const post = await this.postsService.boostPost(id, user._id.toString());
+    return {
+      success: true,
+      message: 'Post boosted successfully',
+      post,
+    };
+  }
 }

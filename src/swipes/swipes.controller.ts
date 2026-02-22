@@ -159,6 +159,7 @@ export class SwipesController {
   })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
   @ApiQuery({ name: 'limit', required: false, description: 'Items per page' })
+  @ApiQuery({ name: 'passportMode', required: false, description: 'Enable passport mode (premium only) - removes location restrictions' })
   @ApiResponse({ status: 200, description: 'Discovery feed with candidates' })
   async getDiscoveryFeed(
     @CurrentUser() user: User,
@@ -172,6 +173,7 @@ export class SwipesController {
     @Query('dateTo') dateTo?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('passportMode') passportMode?: string,
   ) {
     const query: DiscoverQueryDto = {
       latitude: latitude ? parseFloat(latitude) : undefined,
@@ -184,7 +186,16 @@ export class SwipesController {
       dateTo,
       page: page ? parseInt(page) : 1,
       limit: limit ? parseInt(limit) : 20,
+      passportMode: passportMode === 'true',
     };
+
+    // Resolve the user's subscription tier from their profile
+    const userTier = (user as any).subscriptionTier || 'free';
+
+    // Passport mode requires pro/premium subscription
+    if (query.passportMode && userTier === 'free') {
+      throw new BadRequestException('Passport mode requires a Pro or Premium subscription');
+    }
 
     let feed;
     if (user.role === 'artist') {

@@ -201,6 +201,11 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
         attachments: data.attachments,
       });
 
+      this.logger.log(
+        `📨 [WS send_message] user=${client.user.email} matchId=${data.matchId} ` +
+        `type=${data.messageType || 'text'} contentLen=${data.content?.length ?? 0}`,
+      );
+
       // Broadcast to all users in the room
       this.server.to(`match:${data.matchId}`).emit('new_message', {
         message,
@@ -219,10 +224,23 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
             : match.artistUser.toString();
 
         if (!this.isUserOnline(recipientId)) {
+          // Build user-friendly notification body based on message type
+          let notifBody = data.content || 'You have a new message';
+          const msgType = data.messageType;
+          if (msgType === 'image') {
+            notifBody = '📷 Sent a photo';
+          } else if (msgType === 'audio') {
+            notifBody = '🎵 Sent an audio message';
+          } else if (msgType === 'booking_request') {
+            notifBody = '📋 Sent a booking request';
+          } else if (notifBody.startsWith('http://') || notifBody.startsWith('https://')) {
+            notifBody = '📎 Sent an attachment';
+          }
+
           // Send push notification to offline user
           await this.sendPushNotification(recipientId, {
-            title: 'New Message',
-            body: data.content || 'You have a new message',
+            title: `New Message from ${client.user.fullName ?? 'someone'}`,
+            body: notifBody,
             data: {
               type: 'chat',
               matchId: data.matchId,

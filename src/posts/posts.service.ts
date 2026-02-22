@@ -129,21 +129,21 @@ export class PostsService {
       filter.userId = new Types.ObjectId(query.userId);
     }
 
-    // Build sort
+    // Build sort — boosted posts always come first, then apply user's sort preference
     let sortQuery: Record<string, 1 | -1>;
     switch (sort) {
       case 'trending':
-        sortQuery = { trendingScore: -1, createdAt: -1 };
+        sortQuery = { isBoosted: -1, trendingScore: -1, createdAt: -1 };
         break;
       case 'latest':
-        sortQuery = { createdAt: -1 };
+        sortQuery = { isBoosted: -1, createdAt: -1 };
         break;
       case 'following':
         // For now, same as trending. Later: filter by followed users
-        sortQuery = { createdAt: -1 };
+        sortQuery = { isBoosted: -1, createdAt: -1 };
         break;
       default:
-        sortQuery = { trendingScore: -1, createdAt: -1 };
+        sortQuery = { isBoosted: -1, trendingScore: -1, createdAt: -1 };
     }
 
     const [posts, total] = await Promise.all([
@@ -187,17 +187,24 @@ export class PostsService {
     }
 
     // Add isLiked and isSaved flags for current user
+    // Also normalize isBoosted — check expiry
     const userObjectId = new Types.ObjectId(userId);
-    const enrichedPosts = resultPosts.map((post) => ({
-      ...post,
-      author: post.userId,
-      isLiked: (post.likes as Types.ObjectId[]).some((id) =>
-        id.equals(userObjectId),
-      ),
-      isSaved: (post.savedBy as Types.ObjectId[]).some((id) =>
-        id.equals(userObjectId),
-      ),
-    }));
+    const now = new Date();
+    const enrichedPosts = resultPosts.map((post) => {
+      const p = post as any;
+      const boostActive = p.isBoosted && p.boostExpiresAt && new Date(p.boostExpiresAt) > now;
+      return {
+        ...post,
+        author: post.userId,
+        isBoosted: boostActive,
+        isLiked: (post.likes as Types.ObjectId[]).some((id) =>
+          id.equals(userObjectId),
+        ),
+        isSaved: (post.savedBy as Types.ObjectId[]).some((id) =>
+          id.equals(userObjectId),
+        ),
+      };
+    });
 
     return { posts: enrichedPosts as unknown as Post[], hasMore, total };
   }
@@ -545,5 +552,62 @@ export class PostsService {
       { _id: new Types.ObjectId(postId) },
       { $inc: { viewCount: 1 } },
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOOST POST (Premium Feature)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Boost a post for 24 hours. Requires pro/premium subscription.
+   * Boosted posts appear at the top of all feeds.
+   */
+  async boostPost(postId: string, userId: string): Promise<Post> {
+    this.logger.log(`posts:boost postId=${postId} userId=${userId}`);
+
+    const post = await this.postModel.findById(postId);
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.userId.toString() !== userId) {
+      throw new ForbiddenException('You can only boost your own posts');
+    }
+
+    if (post.status !== 'active') {
+      throw new BadRequestException('Can only boost active posts');
+    }
+
+    // Check subscription tier
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const tier = user.subscriptionTier || 'free';
+    if (tier === 'free') {
+      throw new ForbiddenException('Boosting posts requires a Pro or Premium subscription');
+    }
+
+    // Check if already boosted and not expired
+    if (post.isBoosted && post.boostExpiresAt && post.boostExpiresAt > new Date()) {
+      throw new BadRequestException(
+        `Post is already boosted until ${post.boostExpiresAt.toISOString()}`,
+      );
+    }
+
+    // Boost duration: 24 hours for pro, 48 hours for premium
+    const boostHours = tier === 'premium' ? 48 : 24;
+    const boostExpiresAt = new Date(Date.now() + boostHours * 60 * 60 * 1000);
+
+    post.isBoosted = true;
+    post.boostExpiresAt = boostExpiresAt;
+    await post.save();
+
+    this.logger.log(
+      `Post ${postId} boosted by ${userId} (tier=${tier}) until ${boostExpiresAt.toISOString()}`,
+    );
+
+    return this.findById(postId, userId);
   }
 }

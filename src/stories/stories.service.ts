@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -219,13 +220,19 @@ export class StoriesService {
       } as unknown as StoryWithMeta;
     });
 
-    // Sort: user's own story first, then unviewed, then viewed
+    // Sort: user's own story first, then boosted, then unviewed, then viewed
     enrichedStories.sort((a, b) => {
       const aIsOwn = (a.userId as unknown as { _id: Types.ObjectId })._id.equals(userObjectId);
       const bIsOwn = (b.userId as unknown as { _id: Types.ObjectId })._id.equals(userObjectId);
 
       if (aIsOwn && !bIsOwn) return -1;
       if (!aIsOwn && bIsOwn) return 1;
+
+      // Boosted stories come before non-boosted (after own)
+      const aIsBoosted = (a as any).isBoosted && (a as any).boostExpiresAt && new Date((a as any).boostExpiresAt) > now;
+      const bIsBoosted = (b as any).isBoosted && (b as any).boostExpiresAt && new Date((b as any).boostExpiresAt) > now;
+      if (aIsBoosted && !bIsBoosted) return -1;
+      if (!aIsBoosted && bIsBoosted) return 1;
 
       if (a.hasUnviewed && !b.hasUnviewed) return -1;
       if (!a.hasUnviewed && b.hasUnviewed) return 1;
@@ -472,5 +479,61 @@ export class StoriesService {
       .lean();
 
     return { viewers, total: viewers.length };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOOST STORY (Premium Feature)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Boost a story so it appears near the top of the stories tray.
+   * Requires pro/premium subscription. Boost lasts until story expires.
+   */
+  async boostStory(storyId: string, userId: string): Promise<Story> {
+    this.logger.log(`stories:boost storyId=${storyId} userId=${userId}`);
+
+    const story = await this.storyModel.findById(storyId);
+    if (!story) {
+      throw new NotFoundException('Story not found');
+    }
+
+    if (story.userId.toString() !== userId) {
+      throw new ForbiddenException('You can only boost your own stories');
+    }
+
+    if (story.status !== 'active') {
+      throw new BadRequestException('Can only boost active stories');
+    }
+
+    if (story.expiresAt < new Date()) {
+      throw new BadRequestException('Cannot boost an expired story');
+    }
+
+    // Check subscription tier
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const tier = (user as any).subscriptionTier || 'free';
+    if (tier === 'free') {
+      throw new ForbiddenException('Boosting stories requires a Pro or Premium subscription');
+    }
+
+    // Check if already boosted
+    if ((story as any).isBoosted && (story as any).boostExpiresAt && (story as any).boostExpiresAt > new Date()) {
+      throw new BadRequestException('Story is already boosted');
+    }
+
+    // Boost lasts until story expires (stories are 24h ephemeral)
+    (story as any).isBoosted = true;
+    (story as any).boostExpiresAt = story.expiresAt;
+    await story.save();
+
+    this.logger.log(
+      `Story ${storyId} boosted by ${userId} (tier=${tier}) until ${story.expiresAt.toISOString()}`,
+    );
+
+    return this.findById(storyId, userId);
   }
 }

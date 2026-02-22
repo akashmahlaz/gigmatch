@@ -183,6 +183,16 @@ export class Post {
   @Prop({ default: false })
   likesHidden: boolean;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // BOOST (Premium feature)
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Prop({ default: false })
+  isBoosted: boolean;
+
+  @Prop({ type: Date })
+  boostExpiresAt?: Date;
+
   // Virtual populated field
   author?: {
     _id: Types.ObjectId;
@@ -212,3 +222,4 @@ PostSchema.index({ trendingScore: -1, createdAt: -1 });
 PostSchema.index({ hashtags: 1 });
 PostSchema.index({ location: '2dsphere' });
 PostSchema.index({ userId: 1, createdAt: -1 });
+PostSchema.index({ isBoosted: 1, boostExpiresAt: 1 });

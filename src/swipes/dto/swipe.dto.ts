@@ -260,6 +260,13 @@ export class DiscoverQueryDto {
   @IsArray()
   @IsString({ each: true })
   excludeIds?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Enable passport mode (premium only) - removes location restrictions',
+    default: false,
+  })
+  @IsOptional()
+  passportMode?: boolean;
 }
 
 export class RecommendationScoreDto {

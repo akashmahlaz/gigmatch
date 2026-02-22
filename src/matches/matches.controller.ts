@@ -62,7 +62,11 @@ export class MatchesController {
     @CurrentUser() user: UserPayload,
     @Param('id') id: string,
   ) {
-    return this.matchesService.getMatchById(id, user._id.toString());
+    return this.matchesService.getMatchByIdEnriched(
+      id,
+      user._id.toString(),
+      user.role,
+    );
   }
 
   @Put(':id')

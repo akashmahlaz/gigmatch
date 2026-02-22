@@ -191,4 +191,22 @@ export class StoriesController {
   ) {
     return this.storiesService.getViewers(id, itemId, user._id.toString());
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOOST STORY (Premium Feature)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @Post(':id/boost')
+  @ApiOperation({ summary: 'Boost a story to the top of the tray (Pro/Premium only)' })
+  @ApiParam({ name: 'id', description: 'Story ID' })
+  @ApiResponse({ status: 200, description: 'Story boosted successfully' })
+  @ApiResponse({ status: 403, description: 'Requires Pro or Premium subscription' })
+  async boostStory(@CurrentUser() user: UserPayload, @Param('id') id: string) {
+    const story = await this.storiesService.boostStory(id, user._id.toString());
+    return {
+      success: true,
+      message: 'Story boosted successfully',
+      story,
+    };
+  }
 }

@@ -321,7 +321,11 @@ export class SwipesService {
 
     // Location-based filtering (only if coordinates are provided)
     // Note: The Gig schema has GeoJSON at 'location.geo', not 'location' directly
-    if (
+    // 🌍 Passport Mode: Skip location filter for pro/premium users
+    if (query.passportMode) {
+      this.logger.log(`Passport mode enabled for artist ${userId} — skipping location filter`);
+      // No location filter applied — user can discover gigs worldwide
+    } else if (
       query.latitude != null &&
       query.longitude != null &&
       query.radiusMiles != null
@@ -429,7 +433,7 @@ export class SwipesService {
         .sort({ createdAt: -1, date: 1 })
         .skip(skip)
         .limit(limit)
-        .populate('venue', 'venueName venueType coverPhoto location')
+        .populate('venue', 'venueName venueType coverPhoto location subscriptionTier reviewStats')
         .lean(),
       this.gigModel.countDocuments(countQuery),
     ]);
@@ -501,7 +505,11 @@ export class SwipesService {
 
     // Location-based filtering - Use $geoWithin for count (works with countDocuments)
     // Only apply if query explicitly requests location filtering
-    if (
+    // 🌍 Passport Mode: Skip location filter for pro/premium users
+    if (query.passportMode) {
+      this.logger.log(`Passport mode enabled for venue ${userId} — skipping location filter`);
+      // No location filter applied — user can discover artists worldwide
+    } else if (
       query.latitude != null &&
       query.longitude != null &&
       query.radiusMiles != null
@@ -566,7 +574,7 @@ export class SwipesService {
     const [artists, total] = await Promise.all([
       this.artistModel
         .find(matchQuery)
-        .sort({ isBoosted: -1, 'reviewStats.averageRating': -1, profileCompleteness: -1 })
+        .sort({ subscriptionTier: -1, isBoosted: -1, 'reviewStats.averageRating': -1, profileCompleteness: -1 })
         .skip(skip)
         .limit(limit)
         .select('-email -phone -socialLinks')
@@ -605,6 +613,7 @@ export class SwipesService {
   /**
    * Calculate recommendation score for a gig for an artist
    * Uses rule-based scoring algorithm (Phase 1)
+   * Premium/Pro venues get a priority boost so their gigs surface higher
    */
   private calculateGigRecommendationScore(gig: any, artist: any): number {
     let score = 0;
@@ -658,11 +667,22 @@ export class SwipesService {
       score += 5;
     }
 
+    // 🔥 Premium venue priority: Pro/Premium venues' gigs get boosted in search
+    const venueTier = (gig.venue as any)?.subscriptionTier;
+    if (venueTier === 'premium') {
+      score += 20;
+      this.logger.debug(`Gig ${gig._id} boosted +20 (premium venue)`);
+    } else if (venueTier === 'pro') {
+      score += 10;
+      this.logger.debug(`Gig ${gig._id} boosted +10 (pro venue)`);
+    }
+
     return Math.min(Math.round(score), maxScore);
   }
 
   /**
    * Calculate recommendation score for an artist for a venue
+   * Pro/Premium artists get a priority boost so they surface higher in search
    */
   private calculateArtistRecommendationScore(artist: any, venue: any): number {
     let score = 0;
@@ -708,6 +728,16 @@ export class SwipesService {
     // Experience bonus (0-10 points)
     const experienceScore = Math.min((artist.totalGigsPerformed ?? 0) / 10, 10);
     score += experienceScore;
+
+    // 🔥 Premium artist priority: Pro/Premium artists surface higher in venue search
+    const artistTier = artist.subscriptionTier;
+    if (artistTier === 'premium') {
+      score += 25;
+      this.logger.debug(`Artist ${artist._id} boosted +25 (premium tier)`);
+    } else if (artistTier === 'pro') {
+      score += 15;
+      this.logger.debug(`Artist ${artist._id} boosted +15 (pro tier)`);
+    }
 
     return Math.min(Math.round(score), maxScore);
   }

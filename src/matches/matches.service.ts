@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -16,6 +17,8 @@ import {
 
 @Injectable()
 export class MatchesService {
+  private readonly logger = new Logger(MatchesService.name);
+
   constructor(
     @InjectModel(Match.name) private matchModel: Model<MatchDocument>,
     @InjectModel(Artist.name) private artistModel: Model<ArtistDocument>,
@@ -86,6 +89,18 @@ export class MatchesService {
     }
 
     return match;
+  }
+
+  /**
+   * Get a single match by ID with enriched details (otherUser)
+   */
+  async getMatchByIdEnriched(
+    matchId: string,
+    userId: string,
+    userRole: string,
+  ): Promise<MatchWithDetailsDto> {
+    const match = await this.getMatchById(matchId, userId);
+    return this.enrichMatch(match, userId, userRole);
   }
 
   /**
@@ -162,15 +177,58 @@ export class MatchesService {
   }
 
   /**
-   * Update last message info
+   * Update last message info (message-type-aware preview)
    */
-  async updateLastMessage(matchId: string, content: string): Promise<void> {
+  async updateLastMessage(
+    matchId: string,
+    content: string,
+    messageType?: string,
+  ): Promise<void> {
+    const preview = this.getMessagePreview(content, messageType);
+    this.logger.log(`📝 [updateLastMessage] matchId=${matchId} type=${messageType} preview="${preview}"`);
     await this.matchModel.findByIdAndUpdate(matchId, {
       hasMessages: true,
       lastMessageAt: new Date(),
-      lastMessagePreview:
-        content.length > 50 ? content.substring(0, 50) + '...' : content,
+      lastMessagePreview: preview,
     });
+  }
+
+  /**
+   * Generate user-friendly message preview based on type
+   */
+  private getMessagePreview(content: string, messageType?: string): string {
+    // For non-text message types, show a friendly label instead of raw content/URL
+    switch (messageType) {
+      case 'image':
+        return '📷 Photo';
+      case 'audio':
+        return '🎵 Audio message';
+      case 'booking_request':
+        return '📋 Booking request';
+      case 'booking_update':
+        return '📋 Booking update';
+      case 'system':
+        return '📌 System notice';
+      default:
+        break;
+    }
+    // For text messages, check if content looks like a URL (media sent as text type)
+    if (content && (content.startsWith('http://') || content.startsWith('https://'))) {
+      if (/\.(jpg|jpeg|png|gif|webp|heic|avif)/i.test(content)) {
+        return '📷 Photo';
+      }
+      if (/\.(mp3|wav|m4a|aac|ogg|opus)/i.test(content)) {
+        return '🎵 Audio message';
+      }
+      if (/\.(mp4|mov|avi|webm)/i.test(content)) {
+        return '🎬 Video';
+      }
+      // Generic URL/file attachment
+      return '📎 Attachment';
+    }
+    // Normal text - truncate if needed
+    if (!content) return 'Sent a message';
+    return content.length > 50 ? content.substring(0, 50) + '...' : content;
   }
 
   /**
@@ -185,55 +243,117 @@ export class MatchesService {
 
   /**
    * Enrich match with other user's details
+   * Resolves profile data from User → Artist/Venue chain
+   *
+   * Field compatibility: User schema may store profile references as either
+   * 'artistProfile'/'venueProfile' (schemas/user.schema.ts) or
+   * 'artistId'/'venueId' (auth/schemas/user.schema.ts).
+   * We check BOTH field names for robustness.
    */
   private async enrichMatch(
     match: MatchDocument,
     userId: string,
     userRole: string,
   ): Promise<MatchWithDetailsDto> {
+    const matchId = match._id.toString();
     const isArtist = match.artistUser?.toString() === userId;
-    const otherUserId = isArtist ? match.venueUser : match.artistUser;
     const otherType = isArtist ? 'venue' : 'artist';
+
+    this.logger.log(
+      `🔍 [enrichMatch] matchId=${matchId} userId=${userId} role=${userRole} ` +
+      `artistUser=${match.artistUser} venueUser=${match.venueUser} otherType=${otherType}`,
+    );
 
     let otherUser: MatchWithDetailsDto['otherUser'];
 
     if (otherType === 'artist') {
-      // Get the artist user to find their artist profile
+      // Current user is venue → other party is artist
       const artistUser = await this.matchModel.db.collection('users').findOne({
         _id: match.artistUser,
-        role: 'artist',
       });
 
-      const otherProfileId = artistUser?.artistId;
-      const artist = otherProfileId
-        ? await this.artistModel.findById(otherProfileId).exec()
-        : null;
+      this.logger.log(
+        `👤 [enrichMatch] Artist user lookup: found=${!!artistUser} ` +
+        `role=${artistUser?.role} artistProfile=${artistUser?.artistProfile} ` +
+        `artistId=${artistUser?.artistId} fullName=${artistUser?.fullName} name=${artistUser?.name}`,
+      );
+
+      // Try both field names: artistProfile (schemas/user.schema) and artistId (auth/schemas/user.schema)
+      const otherProfileId =
+        artistUser?.artistProfile || artistUser?.artistId || null;
+
+      let artist: ArtistDocument | null = null;
+      if (otherProfileId) {
+        artist = await this.artistModel.findById(otherProfileId).exec();
+        this.logger.log(
+          `🎸 [enrichMatch] Artist profile lookup: profileId=${otherProfileId} ` +
+          `found=${!!artist} displayName=${artist?.displayName} stageName=${artist?.stageName} ` +
+          `photoUrl=${artist?.profilePhotoUrl}`,
+        );
+      } else {
+        // Fallback: try finding artist by userId directly
+        artist = await this.artistModel.findOne({ userId: match.artistUser }).exec();
+        this.logger.warn(
+          `⚠️ [enrichMatch] No artist profile ref on user doc, fallback lookup by userId: ` +
+          `found=${!!artist} displayName=${artist?.displayName}`,
+        );
+      }
+
+      const displayName = artist?.stageName || artist?.displayName || artistUser?.name || artistUser?.fullName || 'Unknown Artist';
 
       otherUser = {
         id: match.artistUser?.toString() || '',
-        name: artist?.displayName || 'Unknown Artist',
-        profilePhoto: artist?.profilePhotoUrl,
+        name: displayName,
+        profilePhoto: artist?.profilePhotoUrl || artistUser?.profilePhotoUrl || undefined,
         type: 'artist',
-        profileId: otherProfileId?.toString() || '',
+        profileId: (artist?._id || otherProfileId)?.toString() || '',
       };
     } else {
-      // Get the venue user to find their venue profile
+      // Current user is artist → other party is venue
       const venueUser = await this.matchModel.db.collection('users').findOne({
         _id: match.venueUser,
-        role: 'venue',
       });
 
-      const otherProfileId = venueUser?.venueId;
-      const venue = otherProfileId
-        ? await this.venueModel.findById(otherProfileId).exec()
-        : null;
+      this.logger.log(
+        `👤 [enrichMatch] Venue user lookup: found=${!!venueUser} ` +
+        `role=${venueUser?.role} venueProfile=${venueUser?.venueProfile} ` +
+        `venueId=${venueUser?.venueId} fullName=${venueUser?.fullName} name=${venueUser?.name}`,
+      );
+
+      // Try both field names: venueProfile (schemas/user.schema) and venueId (auth/schemas/user.schema)
+      const otherProfileId =
+        venueUser?.venueProfile || venueUser?.venueId || null;
+
+      let venue: VenueDocument | null = null;
+      if (otherProfileId) {
+        venue = await this.venueModel.findById(otherProfileId).exec();
+        this.logger.log(
+          `🏢 [enrichMatch] Venue profile lookup: profileId=${otherProfileId} ` +
+          `found=${!!venue} venueName=${venue?.venueName} ` +
+          `photosCount=${venue?.photos?.length ?? 0}`,
+        );
+      } else {
+        // Fallback: try finding venue by userId directly
+        venue = await this.venueModel.findOne({ userId: match.venueUser }).exec();
+        this.logger.warn(
+          `⚠️ [enrichMatch] No venue profile ref on user doc, fallback lookup by userId: ` +
+          `found=${!!venue} venueName=${venue?.venueName}`,
+        );
+      }
+
+      // Resolve profile photo: primary photo first, then any photo, then user's photo
+      const primaryPhoto = venue?.photos?.find((p) => p.isPrimary);
+      const venuePhoto =
+        primaryPhoto?.url || venue?.photos?.[0]?.url || venueUser?.profilePhotoUrl || undefined;
+
+      const displayName = venue?.venueName || venueUser?.name || venueUser?.fullName || 'Unknown Venue';
 
       otherUser = {
         id: match.venueUser?.toString() || '',
-        name: venue?.venueName || 'Unknown Venue',
-        profilePhoto: venue?.photos?.[0]?.url,
+        name: displayName,
+        profilePhoto: venuePhoto,
         type: 'venue',
-        profileId: otherProfileId?.toString() || '',
+        profileId: (venue?._id || otherProfileId)?.toString() || '',
       };
     }
 
@@ -245,6 +365,21 @@ export class MatchesService {
     const matchedAtDate =
       (match as any).matchedAt || match.createdAt || new Date();
 
+    // Sanitize lastMessagePreview — detect stale URLs from before the fix
+    let lastMessageContent = match.lastMessagePreview || '';
+    if (
+      lastMessageContent &&
+      (lastMessageContent.startsWith('http://') || lastMessageContent.startsWith('https://'))
+    ) {
+      lastMessageContent = this.getMessagePreview(lastMessageContent);
+    }
+
+    this.logger.log(
+      `✅ [enrichMatch] matchId=${matchId} → otherUser: name="${otherUser.name}" ` +
+      `type=${otherUser.type} profileId=${otherUser.profileId} hasPhoto=${!!otherUser.profilePhoto} ` +
+      `unread=${unreadCount} lastMsg="${lastMessageContent}"`,
+    );
+
     return {
       id: match._id.toString(),
       matchedAt: matchedAtDate,
@@ -252,7 +387,7 @@ export class MatchesService {
       otherUser,
       lastMessage: match.hasMessages
         ? {
-            content: match.lastMessagePreview || '',
+            content: lastMessageContent,
             sentAt: match.lastMessageAt || new Date(),
             isRead: unreadCount === 0,
           }

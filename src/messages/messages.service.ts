@@ -68,49 +68,80 @@ export class MessagesService {
       throw new BadRequestException('Message must have content or attachments');
     }
 
-    // Use transaction for atomic operations
-    const session = await this.messageModel.db.startSession();
-    let message: MessageDocument | null = null;
-
+    // Save message and update match (no transaction needed - eventual consistency is fine)
     try {
-      await session.withTransaction(async () => {
-        // Create message
-        message = new this.messageModel({
-          match: matchId,
-          sender: userId,
-          senderType: userRole,
-          messageType,
-          content,
-          attachments: attachments || [],
-          replyTo: replyTo ?? replyToMessageId,
-          deliveryStatus: 'sent',
-          metadata,
-        });
-
-        await message.save({ session });
-
-        // Update match with last message info (atomic increment)
-        const recipientField = userRole === 'artist' ? 'unreadCount.venue' : 'unreadCount.artist';
-        await this.matchModel.findByIdAndUpdate(
-          matchId,
-          {
-            hasMessages: true,
-            lastMessageAt: new Date(),
-            lastMessagePreview: (content || 'Sent an attachment').substring(0, 50),
-            $inc: { [recipientField]: 1 },
-          },
-          { session },
-        );
+      // Create message
+      const message = new this.messageModel({
+        match: matchId,
+        sender: userId,
+        senderType: userRole,
+        messageType,
+        content,
+        attachments: attachments || [],
+        replyTo: replyTo ?? replyToMessageId,
+        deliveryStatus: 'sent',
+        metadata,
       });
 
-      await session.endSession();
-      return message!;
+      await message.save();
+
+      // Update match with last message info (message-type-aware preview)
+      const recipientField = userRole === 'artist' ? 'unreadCount.venue' : 'unreadCount.artist';
+      const preview = this.getMessagePreview(content || '', messageType);
+      this.logger.log(
+        `📨 [sendMessage] matchId=${matchId} sender=${userId} type=${messageType} ` +
+        `preview="${preview}" recipientField=${recipientField}`,
+      );
+      await this.matchModel.findByIdAndUpdate(
+        matchId,
+        {
+          hasMessages: true,
+          lastMessageAt: new Date(),
+          lastMessagePreview: preview,
+          $inc: { [recipientField]: 1 },
+        },
+      );
+
+      return message;
     } catch (error) {
-      await session.abortTransaction();
-      await session.endSession();
       this.logger.error('Failed to send message', error);
       throw new BadRequestException('Failed to send message. Please try again.');
     }
+  }
+
+  /**
+   * Generate user-friendly message preview based on type
+   */
+  private getMessagePreview(content: string, messageType?: string): string {
+    switch (messageType) {
+      case 'image':
+        return '📷 Photo';
+      case 'audio':
+        return '🎵 Audio message';
+      case 'booking_request':
+        return '📋 Booking request';
+      case 'booking_update':
+        return '📋 Booking update';
+      case 'system':
+        return '📌 System notice';
+      default:
+        break;
+    }
+    // For text messages, check if content looks like a media URL
+    if (content && (content.startsWith('http://') || content.startsWith('https://'))) {
+      if (/\.(jpg|jpeg|png|gif|webp|heic|avif)/i.test(content)) {
+        return '📷 Photo';
+      }
+      if (/\.(mp3|wav|m4a|aac|ogg|opus)/i.test(content)) {
+        return '🎵 Audio message';
+      }
+      if (/\.(mp4|mov|avi|webm)/i.test(content)) {
+        return '🎬 Video';
+      }
+      return '📎 Attachment';
+    }
+    if (!content) return 'Sent a message';
+    return content.length > 50 ? content.substring(0, 50) + '...' : content;
   }
 
   /**
@@ -456,22 +487,26 @@ export class MessagesService {
   }
 
   /**
-   * Update match with last message info
+   * Update match with last message info (message-type-aware)
    */
   private async updateMatchLastMessage(
     match: MatchDocument,
     content: string,
     senderRole: string,
+    messageType?: string,
   ): Promise<void> {
     // Increment unread count for recipient
     const recipientField =
       senderRole === 'artist' ? 'unreadCount.venue' : 'unreadCount.artist';
 
+    const preview = this.getMessagePreview(content, messageType);
+    this.logger.log(
+      `📝 [updateMatchLastMessage] matchId=${match._id} type=${messageType} preview="${preview}"`,
+    );
     await this.matchModel.findByIdAndUpdate(match._id, {
       hasMessages: true,
       lastMessageAt: new Date(),
-      lastMessagePreview:
-        content.length > 50 ? content.substring(0, 50) + '...' : content,
+      lastMessagePreview: preview,
       $inc: { [recipientField]: 1 },
     });
   }

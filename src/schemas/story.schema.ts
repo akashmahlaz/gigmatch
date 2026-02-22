@@ -130,6 +130,16 @@ export class Story {
   })
   status: 'active' | 'expired' | 'deleted';
 
+  // ═══════════════════════════════════════════════════════════════════
+  // BOOST (Premium feature)
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Prop({ default: false })
+  isBoosted: boolean;
+
+  @Prop({ type: Date })
+  boostExpiresAt?: Date;
+
   // Virtual populated field
   author?: {
     _id: Types.ObjectId;
@@ -157,3 +167,4 @@ export const StorySchema = SchemaFactory.createForClass(Story);
 StorySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index - auto deletes expired stories
 StorySchema.index({ userId: 1, status: 1, expiresAt: -1 });
 StorySchema.index({ createdAt: -1 });
+StorySchema.index({ isBoosted: 1, boostExpiresAt: 1 });
