@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Match, MatchDocument } from '../schemas/match.schema';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
@@ -115,6 +115,28 @@ export class MatchesService {
 
     if (updateDto.status) {
       match.status = updateDto.status as any;
+
+      // Track who blocked and when
+      if (updateDto.status === 'blocked') {
+        match.blockedBy = new Types.ObjectId(userId);
+        match.blockedAt = new Date();
+        this.logger.log(
+          `Match ${matchId} blocked by user ${userId}`,
+        );
+      }
+
+      // Clear block info when unblocking (e.g. status back to 'active')
+      if (
+        updateDto.status === 'active' &&
+        match.blockedBy
+      ) {
+        match.blockedBy = undefined;
+        match.blockedAt = undefined;
+        match.blockReason = undefined;
+        this.logger.log(
+          `Match ${matchId} unblocked by user ${userId}`,
+        );
+      }
     }
 
     await match.save();
@@ -399,5 +421,145 @@ export class MatchesService {
       unreadCount,
       isMuted,
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // BLOCK HELPERS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Check block status between current user and a target profile.
+   * Returns: { isBlocked, blockedByMe, matchId }
+   */
+  async checkBlockStatus(
+    userId: string,
+    targetProfileId: string,
+    targetType: 'artist' | 'venue',
+  ): Promise<{
+    isBlocked: boolean;
+    blockedByMe: boolean;
+    matchId: string | null;
+  }> {
+    // Find any match (blocked or not) between these users
+    const query: any =
+      targetType === 'artist'
+        ? { artist: targetProfileId, $or: [{ artistUser: userId }, { venueUser: userId }] }
+        : { venue: targetProfileId, $or: [{ artistUser: userId }, { venueUser: userId }] };
+
+    // Also check the reverse — current user might be the artist
+    const match = await this.matchModel
+      .findOne({
+        status: 'blocked',
+        $or: [
+          // Target is artist, current user is venue side
+          targetType === 'artist'
+            ? { artist: targetProfileId, venueUser: userId }
+            : { venue: targetProfileId, artistUser: userId },
+          // Target is venue, current user is artist side
+          targetType === 'artist'
+            ? { artist: targetProfileId, artistUser: userId }
+            : { venue: targetProfileId, venueUser: userId },
+        ],
+      })
+      .select('blockedBy artistUser venueUser')
+      .lean();
+
+    if (!match) {
+      return { isBlocked: false, blockedByMe: false, matchId: null };
+    }
+
+    const blockedByMe = match.blockedBy?.toString() === userId;
+
+    this.logger.log(
+      `checkBlockStatus: userId=${userId} target=${targetProfileId} → blocked, blockedByMe=${blockedByMe}`,
+    );
+
+    return {
+      isBlocked: true,
+      blockedByMe,
+      matchId: (match as any)._id.toString(),
+    };
+  }
+
+  /**
+   * Get all user IDs that a given user has blocked or has been blocked by.
+   * Returns the OTHER user's ID in each blocked match.
+   */
+  async getBlockedUserIds(userId: string): Promise<string[]> {
+    const blockedMatches = await this.matchModel
+      .find({
+        status: 'blocked',
+        $or: [{ artistUser: userId }, { venueUser: userId }],
+      })
+      .select('artistUser venueUser')
+      .lean();
+
+    const blockedIds = blockedMatches.map((m) => {
+      // Return the OTHER user's ID
+      return m.artistUser.toString() === userId
+        ? m.venueUser.toString()
+        : m.artistUser.toString();
+    });
+
+    this.logger.debug(
+      `getBlockedUserIds: userId=${userId}, blockedIds=[${blockedIds.join(',')}]`,
+    );
+
+    return blockedIds;
+  }
+
+  /**
+   * Get all profile IDs (artist/venue) that a given user has blocked or been blocked by.
+   * Returns the OTHER user's profile ID in each blocked match.
+   */
+  async getBlockedProfileIds(userId: string): Promise<string[]> {
+    const blockedMatches = await this.matchModel
+      .find({
+        status: 'blocked',
+        $or: [{ artistUser: userId }, { venueUser: userId }],
+      })
+      .select('artist venue artistUser venueUser')
+      .lean();
+
+    const blockedProfileIds = blockedMatches.map((m) => {
+      // Return the OTHER user's profile ID
+      return m.artistUser.toString() === userId
+        ? m.venue.toString()
+        : m.artist.toString();
+    });
+
+    this.logger.debug(
+      `getBlockedProfileIds: userId=${userId}, blockedProfileIds=[${blockedProfileIds.join(',')}]`,
+    );
+
+    return blockedProfileIds;
+  }
+
+  /**
+   * Get all blocked matches for a user (where they are the blocker)
+   * Used by the "Blocked Users" screen
+   */
+  async getBlockedUsers(
+    userId: string,
+    userRole: string,
+  ): Promise<MatchWithDetailsDto[]> {
+    const matches = await this.matchModel
+      .find({
+        status: 'blocked',
+        blockedBy: userId,
+        $or: [{ artistUser: userId }, { venueUser: userId }],
+      })
+      .sort({ blockedAt: -1 })
+      .exec();
+
+    this.logger.log(
+      `getBlockedUsers: userId=${userId}, found=${matches.length} blocked matches`,
+    );
+
+    const enriched = await Promise.all(
+      matches.map(async (match) => this.enrichMatch(match, userId, userRole)),
+    );
+
+    return enriched;
   }
 }

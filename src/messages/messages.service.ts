@@ -444,6 +444,7 @@ export class MessagesService {
     );
 
     // Find existing match using user IDs OR profile IDs (swipe-created matches may only have profile IDs)
+    // NOTE: Do NOT filter out blocked matches here — we need to detect them and handle gracefully
     let match = await this.matchModel
       .findOne({
         $or: [
@@ -456,13 +457,35 @@ export class MessagesService {
               ]
             : []),
         ],
-        status: { $ne: 'blocked' },
       })
       .exec();
 
     this.logger.log(
-      `🔍 Match lookup result: ${match ? `found match ${match._id}` : 'no match found'}`,
+      `🔍 Match lookup result: ${match ? `found match ${match._id} (status=${match.status})` : 'no match found'}`,
     );
+
+    // If match is blocked, auto-unblock when the blocker initiates a new conversation
+    if (match && match.status === 'blocked') {
+      const blockerStr = match.blockedBy?.toString();
+      if (blockerStr === userId) {
+        this.logger.log(
+          `🔓 Auto-unblocking match ${match._id} — blocker (${userId}) is initiating conversation`,
+        );
+        await this.matchModel.findByIdAndUpdate(match._id, {
+          status: 'active',
+          $unset: { blockedBy: '', blockedAt: '', blockReason: '' },
+        }).exec();
+        match.status = 'active';
+        (match as any).blockedBy = undefined;
+      } else {
+        this.logger.warn(
+          `🚫 Match ${match._id} is blocked by ${blockerStr}, current user ${userId} cannot message`,
+        );
+        throw new BadRequestException(
+          'This conversation has been blocked by the other user.',
+        );
+      }
+    }
 
     // Get participant details for response
     let participantName: string | undefined;
@@ -480,7 +503,7 @@ export class MessagesService {
       participantPhoto = primaryPhoto?.url || venue?.photos?.[0]?.url;
     }
 
-    // If match exists, return conversation info
+    // If match exists (active/archived), return conversation info
     if (match) {
       return {
         id: match._id.toString(),
@@ -558,6 +581,20 @@ export class MessagesService {
           .exec();
 
         if (existingMatch) {
+          // If the found match is blocked, handle it
+          if (existingMatch.status === 'blocked') {
+            const blockerStr = existingMatch.blockedBy?.toString();
+            if (blockerStr === userId) {
+              this.logger.log(`🔓 Auto-unblocking match ${existingMatch._id} after duplicate error`);
+              await this.matchModel.findByIdAndUpdate(existingMatch._id, {
+                status: 'active',
+                $unset: { blockedBy: '', blockedAt: '', blockReason: '' },
+              }).exec();
+            } else {
+              throw new BadRequestException('This conversation has been blocked by the other user.');
+            }
+          }
+
           this.logger.log(`✅ Found existing match after duplicate error: ${existingMatch._id}`);
           return {
             id: existingMatch._id.toString(),

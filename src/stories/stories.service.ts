@@ -13,6 +13,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Story, StoryDocument } from '../schemas/story.schema';
 import { User, UserDocument } from '../schemas/user.schema';
+import { Match, MatchDocument } from '../schemas/match.schema';
 import {
   CreateStoryDto,
   AddStoryItemDto,
@@ -61,6 +62,7 @@ export class StoriesService {
   constructor(
     @InjectModel(Story.name) private storyModel: Model<StoryDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Match.name) private matchModel: Model<MatchDocument>,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -168,12 +170,22 @@ export class StoriesService {
 
     const now = new Date();
 
+    // 🚫 Get blocked user IDs to exclude from feed
+    const blockedUserIds = await this.getBlockedUserIds(userId);
+    const storyFilter: Record<string, unknown> = {
+      status: 'active',
+      expiresAt: { $gt: now },
+    };
+    if (blockedUserIds.length > 0) {
+      storyFilter.userId = { $nin: blockedUserIds.map((id) => new Types.ObjectId(id)) };
+      this.logger.log(
+        `stories:feed excluding ${blockedUserIds.length} blocked user(s) for user ${userId}`,
+      );
+    }
+
     // Get all active, non-expired stories
     const stories = await this.storyModel
-      .find({
-        status: 'active',
-        expiresAt: { $gt: now },
-      })
+      .find(storyFilter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit + 1)
@@ -535,5 +547,28 @@ export class StoriesService {
     );
 
     return this.findById(storyId, userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BLOCK HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get user IDs that the current user has blocked or been blocked by
+   */
+  private async getBlockedUserIds(userId: string): Promise<string[]> {
+    const blockedMatches = await this.matchModel
+      .find({
+        status: 'blocked',
+        $or: [{ artistUser: userId }, { venueUser: userId }],
+      })
+      .select('artistUser venueUser')
+      .lean();
+
+    return blockedMatches.map((m) =>
+      m.artistUser.toString() === userId
+        ? m.venueUser.toString()
+        : m.artistUser.toString(),
+    );
   }
 }

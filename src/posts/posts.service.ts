@@ -13,6 +13,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Post, PostDocument } from '../schemas/post.schema';
 import { User, UserDocument } from '../schemas/user.schema';
+import { Match, MatchDocument } from '../schemas/match.schema';
 import {
   CreatePostDto,
   UpdatePostDto,
@@ -27,6 +28,7 @@ export class PostsService {
   constructor(
     @InjectModel(Post.name) private postModel: Model<PostDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Match.name) private matchModel: Model<MatchDocument>,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -127,6 +129,18 @@ export class PostsService {
 
     if (query.userId) {
       filter.userId = new Types.ObjectId(query.userId);
+    }
+
+    // 🚫 Exclude posts from blocked users (bidirectional)
+    // Skip when viewing a specific user's profile posts
+    if (!query.userId) {
+      const blockedUserIds = await this.getBlockedUserIds(userId);
+      if (blockedUserIds.length > 0) {
+        filter.userId = { $nin: blockedUserIds.map((id) => new Types.ObjectId(id)) };
+        this.logger.log(
+          `posts:feed excluding ${blockedUserIds.length} blocked user(s) for user ${userId}`,
+        );
+      }
     }
 
     // Build sort — boosted posts always come first, then apply user's sort preference
@@ -609,5 +623,28 @@ export class PostsService {
     );
 
     return this.findById(postId, userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BLOCK HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get user IDs that the current user has blocked or been blocked by
+   */
+  private async getBlockedUserIds(userId: string): Promise<string[]> {
+    const blockedMatches = await this.matchModel
+      .find({
+        status: 'blocked',
+        $or: [{ artistUser: userId }, { venueUser: userId }],
+      })
+      .select('artistUser venueUser')
+      .lean();
+
+    return blockedMatches.map((m) =>
+      m.artistUser.toString() === userId
+        ? m.venueUser.toString()
+        : m.artistUser.toString(),
+    );
   }
 }

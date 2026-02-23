@@ -53,6 +53,32 @@ export class MatchesController {
     return { unreadCount: count };
   }
 
+  @Get('blocked-users')
+  @ApiOperation({ summary: 'Get all users blocked by current user' })
+  @ApiResponse({ status: 200, description: 'Blocked users retrieved' })
+  async getBlockedUsers(@CurrentUser() user: UserPayload) {
+    return this.matchesService.getBlockedUsers(
+      user._id.toString(),
+      user.role,
+    );
+  }
+
+  @Get('check-block/:profileId')
+  @ApiOperation({ summary: 'Check block status with a profile' })
+  @ApiParam({ name: 'profileId', description: 'Target profile ID (artist or venue)' })
+  @ApiResponse({ status: 200, description: 'Block status returned' })
+  async checkBlockStatus(
+    @CurrentUser() user: UserPayload,
+    @Param('profileId') profileId: string,
+    @Query('type') type: string,
+  ) {
+    return this.matchesService.checkBlockStatus(
+      user._id.toString(),
+      profileId,
+      (type as 'artist' | 'venue') || 'artist',
+    );
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get match by ID' })
   @ApiParam({ name: 'id', description: 'Match ID' })

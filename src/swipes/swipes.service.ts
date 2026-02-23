@@ -423,6 +423,16 @@ export class SwipesService {
       countQuery._id = { $nin: swipedGigIds };
     }
 
+    // 🚫 Exclude gigs from blocked venues (bidirectional — blocker or blocked)
+    const blockedVenueIds = await this.getBlockedProfileIds(userId);
+    if (blockedVenueIds.length > 0) {
+      matchQuery.venue = { $nin: blockedVenueIds };
+      countQuery.venue = { $nin: blockedVenueIds };
+      this.logger.log(
+        `Artist discovery: excluding ${blockedVenueIds.length} blocked venue(s) for user ${userId}`,
+      );
+    }
+
     // Execute query with pagination
     const skip = ((query.page ?? 1) - 1) * (query.limit ?? 20);
     const limit = query.limit ?? 20;
@@ -560,6 +570,22 @@ export class SwipesService {
     if (swipedArtistIds.length > 0) {
       matchQuery._id = { $nin: swipedArtistIds };
       countQuery._id = { $nin: swipedArtistIds };
+    }
+
+    // 🚫 Exclude blocked artists (bidirectional — blocker or blocked)
+    const blockedArtistIds = await this.getBlockedProfileIds(userId);
+    if (blockedArtistIds.length > 0) {
+      // Merge with existing $nin if present
+      if (matchQuery._id?.$nin) {
+        matchQuery._id.$nin = [...matchQuery._id.$nin, ...blockedArtistIds];
+        countQuery._id.$nin = [...countQuery._id.$nin, ...blockedArtistIds];
+      } else {
+        matchQuery._id = { $nin: blockedArtistIds };
+        countQuery._id = { $nin: blockedArtistIds };
+      }
+      this.logger.log(
+        `Venue discovery: excluding ${blockedArtistIds.length} blocked artist(s) for user ${userId}`,
+      );
     }
 
     // Log the query for debugging
@@ -1223,6 +1249,35 @@ export class SwipesService {
       .lean();
 
     return swipes.map((s) => s.targetId as Types.ObjectId);
+  }
+
+  /**
+   * 🚫 Get profile IDs (artist/venue) that the user has blocked or been blocked by.
+   * Returns the OTHER user's profile ID in each blocked match.
+   */
+  private async getBlockedProfileIds(userId: string): Promise<Types.ObjectId[]> {
+    const blockedMatches = await this.matchModel
+      .find({
+        status: 'blocked',
+        $or: [{ artistUser: userId }, { venueUser: userId }],
+      })
+      .select('artist venue artistUser venueUser')
+      .lean();
+
+    const blockedIds = blockedMatches.map((m) => {
+      // Return the OTHER user's profile ID
+      return m.artistUser.toString() === userId
+        ? m.venue
+        : m.artist;
+    });
+
+    if (blockedIds.length > 0) {
+      this.logger.debug(
+        `getBlockedProfileIds: userId=${userId}, blockedProfileIds=[${blockedIds.map((id) => id.toString()).join(',')}]`,
+      );
+    }
+
+    return blockedIds;
   }
 
   /**
