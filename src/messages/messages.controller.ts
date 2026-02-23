@@ -150,7 +150,10 @@ export class MessagesController {
   @ApiOperation({ summary: 'Get total unread message count' })
   @ApiResponse({ status: 200, description: 'Count returned' })
   async getUnreadCount(@CurrentUser() user: UserPayload) {
-    const count = await this.messagesService.getUnreadCount(user._id.toString());
+    const count = await this.messagesService.getUnreadCount(
+      user._id.toString(),
+      user.role,
+    );
     return { unreadCount: count };
   }
 

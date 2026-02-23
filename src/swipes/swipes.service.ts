@@ -1262,11 +1262,11 @@ export class SwipesService {
         $or: [{ artistUser: userId }, { venueUser: userId }],
       })
       .select('artist venue artistUser venueUser')
-      .lean();
+      .lean<Array<{ artist: Types.ObjectId; venue: Types.ObjectId; artistUser: Types.ObjectId; venueUser: Types.ObjectId }>>();
 
     const blockedIds = blockedMatches.map((m) => {
       // Return the OTHER user's profile ID
-      return m.artistUser.toString() === userId
+      return m.artistUser?.toString() === userId
         ? m.venue
         : m.artist;
     });

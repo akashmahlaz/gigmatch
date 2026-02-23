@@ -304,16 +304,34 @@ export class MessagesService {
   }
 
   /**
-   * Get unread message count for a user
+   * Get unread message count for a user (excludes muted conversations)
    */
-  async getUnreadCount(userId: string): Promise<number> {
-    // Get all matches for user
-    const matches = await this.matchModel.find({
+  async getUnreadCount(userId: string, userRole?: string): Promise<number> {
+    // Build filter — exclude muted conversations from unread badge
+    const matchFilter: any = {
       $or: [{ artistUser: userId }, { venueUser: userId }],
       status: 'active',
-    });
+    };
 
-    const matchIds = matches.map((m) => m._id);
+    // Determine user's role from first match if not provided
+    if (userRole) {
+      const muteField = userRole === 'artist' ? 'isMuted.artist' : 'isMuted.venue';
+      matchFilter[muteField] = { $ne: true };
+    }
+
+    const matches = await this.matchModel.find(matchFilter);
+
+    // If role wasn't provided, filter muted matches in-memory
+    let filteredMatches = matches;
+    if (!userRole) {
+      filteredMatches = matches.filter((m) => {
+        const isArtistSide = m.artistUser.toString() === userId;
+        return isArtistSide ? !m.isMuted?.artist : !m.isMuted?.venue;
+      });
+    }
+
+    const matchIds = filteredMatches.map((m) => m._id);
+    if (matchIds.length === 0) { return 0; }
 
     return this.messageModel.countDocuments({
       match: { $in: matchIds },

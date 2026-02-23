@@ -145,6 +145,12 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
       return;
     }
 
+    // Prevent joining blocked match rooms
+    if (match.status === 'blocked') {
+      client.emit('error', { message: 'This conversation is blocked' });
+      return;
+    }
+
     client.join(`match:${matchId}`);
     client.emit('joined_room', { matchId });
     this.logger.log(`User ${client.user.email} joined room match:${matchId}`);
@@ -215,7 +221,7 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
         },
       });
 
-      // Send notification to offline users
+      // Send notification to offline users (skip if muted)
       const match = await this.matchModel.findById(data.matchId).exec();
       if (match) {
         const recipientId =
@@ -223,7 +229,12 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
             ? match.venueUser.toString()
             : match.artistUser.toString();
 
-        if (!this.isUserOnline(recipientId)) {
+        // Check if the recipient has muted this conversation
+        const recipientRole =
+          match.artistUser.toString() === userId ? 'venue' : 'artist';
+        const isMutedByRecipient = match.isMuted?.[recipientRole] === true;
+
+        if (!this.isUserOnline(recipientId) && !isMutedByRecipient) {
           // Build user-friendly notification body based on message type
           let notifBody = data.content || 'You have a new message';
           const msgType = data.messageType;

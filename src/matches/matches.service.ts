@@ -53,7 +53,17 @@ export class MatchesService {
         .sort({ lastMessageAt: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .exec(),
+        .exec()
+        .then((matches) => {
+          // Sort pinned matches first (in-memory after DB sort)
+          const role = userRole;
+          const pinField = role === 'artist' ? 'artist' : 'venue';
+          return matches.sort((a, b) => {
+            const aPinned = a.isPinned?.[pinField] ? 1 : 0;
+            const bPinned = b.isPinned?.[pinField] ? 1 : 0;
+            return bPinned - aPinned; // pinned first
+          });
+        }),
       this.matchModel.countDocuments(filter).exec(),
     ]);
 
@@ -114,6 +124,18 @@ export class MatchesService {
     const match = await this.getMatchById(matchId, userId);
 
     if (updateDto.status) {
+      // Only the blocker can unblock — prevent blocked user from self-unblocking
+      if (
+        updateDto.status === 'active' &&
+        match.status === 'blocked' &&
+        match.blockedBy &&
+        match.blockedBy.toString() !== userId
+      ) {
+        throw new ForbiddenException(
+          'Only the person who blocked can unblock',
+        );
+      }
+
       match.status = updateDto.status as any;
 
       // Track who blocked and when
@@ -165,7 +187,7 @@ export class MatchesService {
   }
 
   /**
-   * Get unread matches count
+   * Get unread matches count (excludes muted conversations)
    */
   async getUnreadCount(userId: string, userRole: string): Promise<number> {
     const filter: any = {
@@ -175,9 +197,11 @@ export class MatchesService {
     if (userRole === 'artist') {
       filter.artistUser = userId;
       filter['unreadCount.artist'] = { $gt: 0 };
+      filter['isMuted.artist'] = { $ne: true };
     } else {
       filter.venueUser = userId;
       filter['unreadCount.venue'] = { $gt: 0 };
+      filter['isMuted.venue'] = { $ne: true };
     }
 
     return this.matchModel.countDocuments(filter).exec();
