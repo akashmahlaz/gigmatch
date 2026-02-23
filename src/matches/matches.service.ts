@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { Match, MatchDocument } from '../schemas/match.schema';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { Venue, VenueDocument } from '../venues/schemas/venue.schema';
+import { Message, MessageDocument } from '../schemas/message.schema';
 import {
   GetMatchesDto,
   UpdateMatchDto,
@@ -23,6 +24,7 @@ export class MatchesService {
     @InjectModel(Match.name) private matchModel: Model<MatchDocument>,
     @InjectModel(Artist.name) private artistModel: Model<ArtistDocument>,
     @InjectModel(Venue.name) private venueModel: Model<VenueDocument>,
+    @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
   ) {}
 
   /**
@@ -184,6 +186,26 @@ export class MatchesService {
     }
 
     await match.save();
+  }
+
+  /**
+   * Delete match (unmatch) + soft-delete all messages
+   */
+  async deleteMatch(matchId: string, userId: string): Promise<void> {
+    const match = await this.getMatchById(matchId, userId);
+
+    // Soft-delete all messages for this match
+    const deleteResult = await this.messageModel.updateMany(
+      { match: match._id, isDeleted: { $ne: true } },
+      { $set: { isDeleted: true, deletedAt: new Date(), deletedBy: 'system' } },
+    );
+    this.logger.log(
+      `Soft-deleted ${deleteResult.modifiedCount} messages for match ${matchId}`,
+    );
+
+    // Remove the match document
+    await this.matchModel.deleteOne({ _id: match._id });
+    this.logger.log(`Match ${matchId} deleted by user ${userId}`);
   }
 
   /**

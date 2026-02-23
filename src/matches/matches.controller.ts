@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -117,5 +118,18 @@ export class MatchesController {
   ) {
     await this.matchesService.markAsViewed(id, user._id.toString(), user.role);
     return { message: 'Match marked as viewed' };
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete match (unmatch)' })
+  @ApiParam({ name: 'id', description: 'Match ID' })
+  @ApiResponse({ status: 200, description: 'Match deleted' })
+  @ApiResponse({ status: 404, description: 'Match not found' })
+  async deleteMatch(
+    @CurrentUser() user: UserPayload,
+    @Param('id') id: string,
+  ) {
+    await this.matchesService.deleteMatch(id, user._id.toString());
+    return { message: 'Match deleted successfully' };
   }
 }
