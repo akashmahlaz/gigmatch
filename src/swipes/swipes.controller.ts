@@ -213,9 +213,19 @@ export class SwipesController {
     // Normalize response structure for frontend
     // Backend returns 'gigs' for artists, 'artists' for venues
     // Frontend expects 'profiles' with hasMore for pagination
-    const profiles = feed.gigs ?? feed.artists ?? [];
+    // Inject `type` field so frontend knows how to parse each item
+    const rawProfiles = feed.gigs ?? feed.artists ?? [];
+    const isArtistUser = user.role === 'artist';
+    const profiles = rawProfiles.map((item: any) => ({
+      ...item,
+      type: isArtistUser ? 'gig' : 'artist',
+    }));
     const pageLimit = query.limit ?? 20;
     const hasMore = feed.total > (feed.page ?? 1) * pageLimit;
+
+    console.log(
+      `[SwipesController] Discovery response: role=${user.role}, type=${isArtistUser ? 'gig' : 'artist'}, count=${profiles.length}, total=${feed.total}`,
+    );
 
     return {
       success: true,

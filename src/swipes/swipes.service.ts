@@ -103,8 +103,8 @@ export class SwipesService {
   }> {
     const startTime = Date.now();
 
-    // Validate target exists
-    await this.validateSwipeTarget(role, dto.targetId);
+    // Validate target exists (pass targetType for gig support)
+    await this.validateSwipeTarget(role, dto.targetId, dto.targetType);
 
     // Check for existing swipe (prevent duplicates)
     const existingSwipe = await this.swipeModel.findOne({
@@ -119,8 +119,8 @@ export class SwipesService {
     // Check rate limiting
     await this.checkRateLimit(userId, role);
 
-    // Get target user ID for match checking
-    const targetUserId = await this.getTargetUserId(role, dto.targetId);
+    // Get target user ID for match checking (pass targetType for gig→venue resolution)
+    const targetUserId = await this.getTargetUserId(role, dto.targetId, dto.targetType);
 
     // Check for mutual swipe (match)
     const oppositeSwipe = await this.swipeModel.findOne({
@@ -174,22 +174,26 @@ export class SwipesService {
       result = SwipeResult.NO_MATCH;
     }
 
-    // Create swipe record
-    const swipe = await this.swipeModel.create([
-      {
-        swiperId: new Types.ObjectId(userId),
-        targetId: new Types.ObjectId(dto.targetId),
-        targetRole: role === UserRole.ARTIST ? UserRole.VENUE : UserRole.ARTIST,
-        direction: dto.direction,
-        result,
-        metadata: {
-          source: dto.source ?? 'discover',
-          isSuperLike: dto.isSuperLike ?? false,
-          timestamp: new Date(),
-          processingTimeMs: Date.now() - startTime,
-        },
+    // Create swipe record — store relatedGigId when artist swipes on a gig
+    const swipeData: any = {
+      swiperId: new Types.ObjectId(userId),
+      targetId: new Types.ObjectId(dto.targetId),
+      targetRole: role === UserRole.ARTIST ? UserRole.VENUE : UserRole.ARTIST,
+      direction: dto.direction,
+      result,
+      metadata: {
+        source: dto.source ?? 'discover',
+        isSuperLike: dto.isSuperLike ?? false,
+        timestamp: new Date(),
+        processingTimeMs: Date.now() - startTime,
       },
-    ]);
+    };
+    // If artist is swiping on a gig, store the gig reference
+    if (dto.targetType === 'gig') {
+      swipeData.relatedGigId = new Types.ObjectId(dto.targetId);
+      this.logger.log(`[swipe] Artist ${userId} swiped on gig ${dto.targetId}`);
+    }
+    const swipe = await this.swipeModel.create([swipeData]);
 
     // Rate limit is now incremented atomically in checkRateLimit, no separate call needed
 
@@ -1028,7 +1032,21 @@ export class SwipesService {
   private async validateSwipeTarget(
     role: UserRole,
     targetId: string,
+    targetType?: string,
   ): Promise<void> {
+    // Artists swiping on gigs — validate gig exists and is open
+    if (role === UserRole.ARTIST && targetType === 'gig') {
+      const gig = await this.gigModel.findById(targetId);
+      if (!gig) {
+        throw new NotFoundException('Gig not found');
+      }
+      if (gig.status !== 'open') {
+        throw new NotFoundException('Gig is no longer available');
+      }
+      this.logger.log(`[validateSwipeTarget] Artist swiping on gig ${targetId} — valid (status: ${gig.status})`);
+      return;
+    }
+
     if (role === UserRole.ARTIST) {
       const venue = await this.venueModel.findById(targetId);
       if (!venue) {
@@ -1054,7 +1072,18 @@ export class SwipesService {
   private async getTargetUserId(
     role: UserRole,
     targetId: string,
+    targetType?: string,
   ): Promise<Types.ObjectId> {
+    // Artist swiping on a gig — resolve to the venue owner's userId
+    if (role === UserRole.ARTIST && targetType === 'gig') {
+      const gig = await this.gigModel.findById(targetId).select('venue');
+      if (!gig || !gig.venue) throw new NotFoundException('Gig or its venue not found');
+      const venue = await this.venueModel.findById(gig.venue).select('userId');
+      if (!venue) throw new NotFoundException('Venue owner not found for gig');
+      this.logger.log(`[getTargetUserId] Resolved gig ${targetId} → venue ${gig.venue} → userId ${venue.userId}`);
+      return venue.userId;
+    }
+
     if (role === UserRole.ARTIST) {
       const venue = await this.venueModel.findById(targetId).select('userId');
       if (!venue) throw new NotFoundException('Venue not found');

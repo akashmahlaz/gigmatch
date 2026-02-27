@@ -17,9 +17,9 @@ export class CreateSwipeDto {
   @IsMongoId()
   targetId: string;
 
-  @ApiProperty({ enum: ['artist', 'venue'], description: 'Target type' })
-  @IsEnum(['artist', 'venue'])
-  targetType: 'artist' | 'venue';
+  @ApiProperty({ enum: ['artist', 'venue', 'gig'], description: 'Target type' })
+  @IsEnum(['artist', 'venue', 'gig'])
+  targetType: 'artist' | 'venue' | 'gig';
 
   @ApiProperty({ enum: SwipeDirection, description: 'Swipe direction' })
   @IsEnum(SwipeDirection)
@@ -127,11 +127,11 @@ export class SwipeQueryDto {
 
   @ApiPropertyOptional({
     description: 'Filter by target type',
-    enum: ['artist', 'venue'],
+    enum: ['artist', 'venue', 'gig'],
   })
   @IsOptional()
-  @IsEnum(['artist', 'venue'])
-  targetType?: 'artist' | 'venue';
+  @IsEnum(['artist', 'venue', 'gig'])
+  targetType?: 'artist' | 'venue' | 'gig';
 
   @ApiPropertyOptional({ description: 'Filter by target ID' })
   @IsOptional()
