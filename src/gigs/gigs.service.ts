@@ -367,6 +367,10 @@ export class GigsService {
             path: 'venue',
             select: 'venueName venueType location',
           })
+          .populate({
+            path: 'bookedArtists',
+            select: 'stageName displayName primaryPhoto profilePhoto',
+          })
           .lean()
           .exec(),
         this.gigModel.countDocuments(filter).exec(),

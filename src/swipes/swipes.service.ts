@@ -184,6 +184,7 @@ export class SwipesService {
         result,
         metadata: {
           source: dto.source ?? 'discover',
+          isSuperLike: dto.isSuperLike ?? false,
           timestamp: new Date(),
           processingTimeMs: Date.now() - startTime,
         },
@@ -310,13 +311,13 @@ export class SwipesService {
       status: 'open',
     };
 
-    // Genre matching
+    // Genre matching — Gig schema field is 'requiredGenres', NOT 'genres'
     if (query.genres && query.genres.length > 0) {
-      matchQuery.genres = { $in: query.genres };
-      countQuery.genres = { $in: query.genres };
+      matchQuery.requiredGenres = { $in: query.genres };
+      countQuery.requiredGenres = { $in: query.genres };
     } else if (artist.genres && artist.genres.length > 0) {
-      matchQuery.genres = { $in: artist.genres };
-      countQuery.genres = { $in: artist.genres };
+      matchQuery.requiredGenres = { $in: artist.genres };
+      countQuery.requiredGenres = { $in: artist.genres };
     }
 
     // Location-based filtering (only if coordinates are provided)
@@ -384,15 +385,15 @@ export class SwipesService {
     }
     // If no location, skip location filtering - show all gigs
 
-    // Budget filtering
+    // Budget filtering — Gig schema field is 'budget', NOT 'budgetMax'
     if (query.minBudget != null || query.maxBudget != null) {
-      matchQuery.budgetMax = { $gte: query.minBudget ?? 0 };
-      countQuery.budgetMax = { $gte: query.minBudget ?? 0 };
+      matchQuery.budget = { $gte: query.minBudget ?? 0 };
+      countQuery.budget = { $gte: query.minBudget ?? 0 };
       if (query.maxBudget != null) {
         const budgetExpr = {
           $and: [
-            { $gte: ['$budgetMax', query.minBudget ?? 0] },
-            { $lte: ['$budgetMax', query.maxBudget] },
+            { $gte: ['$budget', query.minBudget ?? 0] },
+            { $lte: ['$budget', query.maxBudget] },
           ],
         };
         matchQuery.$expr = budgetExpr;
@@ -507,11 +508,11 @@ export class SwipesService {
     if (query.genres && query.genres.length > 0) {
       matchQuery.genres = { $in: query.genres };
       countQuery.genres = { $in: query.genres };
+    } else if (venue.preferredGenres && venue.preferredGenres.length > 0) {
+      // Auto-filter by venue's preferred genres
+      matchQuery.genres = { $in: venue.preferredGenres };
+      countQuery.genres = { $in: venue.preferredGenres };
     }
-    // Don't filter by venue.preferredGenres during development
-    // else if (venue.preferredGenres && venue.preferredGenres.length > 0) {
-    //   matchQuery.genres = { $in: venue.preferredGenres };
-    // }
 
     // Location-based filtering - Use $geoWithin for count (works with countDocuments)
     // Only apply if query explicitly requests location filtering
@@ -543,27 +544,35 @@ export class SwipesService {
           ],
         },
       };
+    } else if (venue.location?.coordinates && venue.location.coordinates.length === 2 &&
+               (venue.location.coordinates[0] !== 0 || venue.location.coordinates[1] !== 0)) {
+      // Auto-apply venue location filter with default 50 mile radius
+      const radiusMiles = query.radiusMiles ?? 50;
+      matchQuery['location.coordinates'] = {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: venue.location.coordinates,
+          },
+          $maxDistance: radiusMiles * 1609.34,
+        },
+      };
+      countQuery['location.coordinates'] = {
+        $geoWithin: {
+          $centerSphere: [
+            venue.location.coordinates,
+            radiusMiles / 3963.2,
+          ],
+        },
+      };
     }
-    // Don't auto-apply venue location filter during development
-    // else if (venue.location?.coordinates && venue.location.coordinates.length === 2 &&
-    //          (venue.location.coordinates[0] !== 0 || venue.location.coordinates[1] !== 0)) {
-    //   const radiusMiles = query.radiusMiles ?? 50;
-    //   matchQuery['location.coordinates'] = {
-    //     $near: {
-    //       $geometry: {
-    //         type: 'Point',
-    //         coordinates: venue.location.coordinates,
-    //       },
-    //       $maxDistance: radiusMiles * 1609.34,
-    //     },
-    //   };
-    // }
     // If no location, skip location filtering - show all artists
 
-    // Budget filtering - DISABLED for development
-    // if (venue.budgetMax && venue.budgetMax > 0) {
-    //   matchQuery.minPrice = { $lte: venue.budgetMax };
-    // }
+    // Budget filtering - filter artists whose minPrice fits within venue budget
+    if (venue.budgetMax && venue.budgetMax > 0) {
+      matchQuery.minPrice = { $lte: venue.budgetMax };
+      countQuery.minPrice = { $lte: venue.budgetMax };
+    }
 
     // Exclude already swiped artists
     const swipedArtistIds = await this.getSwipedProfileIds(userId);

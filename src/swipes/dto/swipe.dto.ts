@@ -25,6 +25,10 @@ export class CreateSwipeDto {
   @IsEnum(SwipeDirection)
   direction: SwipeDirection;
 
+  @ApiPropertyOptional({ description: 'Whether this is a super like (premium feature)' })
+  @IsOptional()
+  isSuperLike?: boolean;
+
   @ApiPropertyOptional({ description: 'Related gig ID (optional)' })
   @IsOptional()
   @IsMongoId()
