@@ -106,34 +106,45 @@ export class SwipesService {
     // Validate target exists (pass targetType for gig support)
     await this.validateSwipeTarget(role, dto.targetId, dto.targetType);
 
-    // Check for existing swipe (prevent duplicates)
-    const existingSwipe = await this.swipeModel.findOne({
-      swiperId: new Types.ObjectId(userId),
-      targetId: new Types.ObjectId(dto.targetId),
-    });
-
-    if (existingSwipe) {
-      throw new ConflictException('You have already swiped on this profile');
-    }
-
     // Check rate limiting
     await this.checkRateLimit(userId, role);
 
     // Get target user ID for match checking (pass targetType for gig→venue resolution)
     const targetUserId = await this.getTargetUserId(role, dto.targetId, dto.targetType);
 
-    // Check for mutual swipe (match)
-    const oppositeSwipe = await this.swipeModel.findOne({
-      swiperId: targetUserId,
-      targetId: new Types.ObjectId(userId),
-      direction: SwipeDirection.RIGHT,
+    // Check for existing swipe (prevent duplicates) — use resolved target user ID
+    const existingSwipe = await this.swipeModel.findOne({
+      swiper: new Types.ObjectId(userId),
+      target: targetUserId,
     });
 
+    if (existingSwipe) {
+      throw new ConflictException('You have already swiped on this profile');
+    }
+
+    // Map direction → action for the real Swipe schema
+    const action: 'like' | 'pass' | 'superlike' = dto.isSuperLike
+      ? 'superlike'
+      : dto.direction === SwipeDirection.RIGHT
+        ? 'like'
+        : 'pass';
+
+    // Check for mutual swipe (match) — only relevant for likes
+    const oppositeSwipe = action !== 'pass'
+      ? await this.swipeModel.findOne({
+          swiper: targetUserId,
+          target: new Types.ObjectId(userId),
+          action: { $in: ['like', 'superlike'] },
+        })
+      : null;
+
+    let isMatch = false;
     let result: SwipeResult;
     let match: Match | null = null;
 
-    if (oppositeSwipe && dto.direction === SwipeDirection.RIGHT) {
+    if (oppositeSwipe && action !== 'pass') {
       // Mutual match!
+      isMatch = true;
       result = SwipeResult.MATCH;
 
       // Create match in transaction
@@ -154,8 +165,8 @@ export class SwipesService {
             { _id: oppositeSwipe._id },
             {
               $set: {
-                result: SwipeResult.MATCH,
-                matchedWith: new Types.ObjectId(userId),
+                isMatch: true,
+                matchedAt: new Date(),
               },
             },
             { session },
@@ -168,31 +179,29 @@ export class SwipesService {
         this.logger.error(`Match creation failed: ${error}`);
         throw new BadRequestException('Failed to create match');
       }
-    } else if (dto.direction === SwipeDirection.RIGHT) {
+    } else if (action === 'like' || action === 'superlike') {
       result = SwipeResult.LIKED;
     } else {
       result = SwipeResult.NO_MATCH;
     }
 
-    // Create swipe record — store relatedGigId when artist swipes on a gig
+    // Create swipe record with correct schema field names
+    // Real schema: swiper, swiperType, target, targetType, action, isMatch, relatedGig
     const swipeData: any = {
-      swiperId: new Types.ObjectId(userId),
-      targetId: new Types.ObjectId(dto.targetId),
-      targetRole: role === UserRole.ARTIST ? UserRole.VENUE : UserRole.ARTIST,
-      direction: dto.direction,
-      result,
-      metadata: {
-        source: dto.source ?? 'discover',
-        isSuperLike: dto.isSuperLike ?? false,
-        timestamp: new Date(),
-        processingTimeMs: Date.now() - startTime,
-      },
+      swiper: new Types.ObjectId(userId),
+      swiperType: role === UserRole.ARTIST ? 'artist' : 'venue',
+      target: targetUserId,
+      targetType: role === UserRole.ARTIST ? 'venue' : 'artist',
+      action,
+      isMatch,
+      matchedAt: isMatch ? new Date() : undefined,
     };
     // If artist is swiping on a gig, store the gig reference
     if (dto.targetType === 'gig') {
-      swipeData.relatedGigId = new Types.ObjectId(dto.targetId);
+      swipeData.relatedGig = new Types.ObjectId(dto.targetId);
       this.logger.log(`[swipe] Artist ${userId} swiped on gig ${dto.targetId}`);
     }
+    console.log('[swipe] Creating swipe record:', JSON.stringify(swipeData, null, 2));
     const swipe = await this.swipeModel.create([swipeData]);
 
     // Rate limit is now incremented atomically in checkRateLimit, no separate call needed
@@ -448,16 +457,29 @@ export class SwipesService {
         .sort({ createdAt: -1, date: 1 })
         .skip(skip)
         .limit(limit)
-        .populate('venue', 'venueName venueType coverPhoto location subscriptionTier reviewStats')
-        .lean(),
+        .populate('venue', 'venueName venueType photos location subscriptionTier reviewStats')
+        .lean({ virtuals: false }),
       this.gigModel.countDocuments(countQuery),
     ]);
 
-    // Add recommendation scores
-    const scoredGigs = gigs.map((gig) => ({
-      ...gig,
-      recommendationScore: this.calculateGigRecommendationScore(gig, artist),
-    }));
+    // Add recommendation scores + resolve coverPhoto from venue.photos[]
+    const scoredGigs = gigs.map((gig: any) => {
+      // Extract cover photo from venue's photos array
+      let coverPhoto: string | null = null;
+      if (gig.venue?.photos?.length) {
+        const primary = gig.venue.photos.find((p: any) => p.isPrimary);
+        coverPhoto = primary?.url || gig.venue.photos[0]?.url || null;
+      }
+      // Inject coverPhoto into venue and build gallery
+      const venuePhotos = (gig.venue?.photos || []).map((p: any) => p.url).filter(Boolean);
+      return {
+        ...gig,
+        venue: gig.venue
+          ? { ...gig.venue, coverPhoto, galleryUrls: venuePhotos, photos: undefined }
+          : gig.venue,
+        recommendationScore: this.calculateGigRecommendationScore(gig, artist),
+      };
+    });
 
     // Sort by recommendation score
     scoredGigs.sort((a, b) => b.recommendationScore - a.recommendationScore);
