@@ -197,6 +197,12 @@ export class SwipesController {
       throw new BadRequestException('Passport mode requires a Pro or Premium subscription');
     }
 
+    const isArtistUser = user.role === 'artist';
+
+    console.log(
+      `[SwipesController] Discovery request: userId=${user._id}, role=${user.role}, isArtistUser=${isArtistUser}`,
+    );
+
     let feed;
     if (user.role === 'artist') {
       feed = await this.swipesService.getArtistDiscoveryFeed(
@@ -215,16 +221,49 @@ export class SwipesController {
     // Frontend expects 'profiles' with hasMore for pagination
     // Inject `type` field so frontend knows how to parse each item
     const rawProfiles = feed.gigs ?? feed.artists ?? [];
-    const isArtistUser = user.role === 'artist';
-    const profiles = rawProfiles.map((item: any) => ({
-      ...item,
-      type: isArtistUser ? 'gig' : 'artist',
-    }));
+    const profiles = rawProfiles.map((item: any) => {
+      const enriched: any = {
+        ...item,
+        type: isArtistUser ? 'gig' : 'artist',
+      };
+
+      // Normalize artist photo fields for the frontend
+      // Backend schema: profilePhotoUrl (string), photos[] (Photo objects)
+      // Frontend expects: profilePhoto (string), galleryUrls (string[])
+      if (!isArtistUser) {
+        // profilePhoto — prefer profilePhotoUrl, then profile photo from photos[]
+        if (!enriched.profilePhoto) {
+          const profilePic = item.profilePhotoUrl
+            || (item.photos ?? []).find((p: any) => p?.isProfilePhoto)?.url
+            || (item.photos ?? [])[0]?.url
+            || null;
+          if (profilePic) {
+            enriched.profilePhoto = profilePic;
+          }
+        }
+
+        // galleryUrls — extract urls from photos[] objects
+        if (!enriched.galleryUrls || enriched.galleryUrls.length === 0) {
+          const gallery = (item.photos ?? [])
+            .filter((p: any) => p?.url)
+            .map((p: any) => p.url);
+          if (gallery.length > 0) {
+            enriched.galleryUrls = gallery;
+          }
+        }
+
+        console.log(
+          `[SwipesController] Artist photo enrichment: id=${item._id}, profilePhoto=${enriched.profilePhoto ? 'YES' : 'NO'}, galleryUrls=${(enriched.galleryUrls ?? []).length}, rawPhotos=${(item.photos ?? []).length}, profilePhotoUrl=${item.profilePhotoUrl ? 'YES' : 'NO'}`,
+        );
+      }
+
+      return enriched;
+    });
     const pageLimit = query.limit ?? 20;
     const hasMore = feed.total > (feed.page ?? 1) * pageLimit;
 
     console.log(
-      `[SwipesController] Discovery response: role=${user.role}, type=${isArtistUser ? 'gig' : 'artist'}, count=${profiles.length}, total=${feed.total}`,
+      `[SwipesController] Discovery response: userId=${user._id}, role=${user.role}, type=${isArtistUser ? 'gig' : 'artist'}, count=${profiles.length}, total=${feed.total}, feedKeys=${Object.keys(feed).join(',')}`,
     );
 
     return {
